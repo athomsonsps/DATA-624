@@ -1,1 +1,565 @@
 
+---
+title: "DATA624_HW.4"
+author: "Andre Thomson"
+date: "2026-06-10"
+output:
+  word_document:
+    toc: true
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(mlbench)
+library(caret)
+library(tidyverse)
+
+theme_set(theme_minimal())
+```
+
+# DATA 624 Homework 4 - KJ 3.1 and KJ 3.2
+
+# KJ 3.1
+
+## Problem
+
+The Glass data contains 214 glass samples with six class categories in the mlbench version of the data. There are nine predictors: refractive index and the percentages of Na, Mg, Al, Si, K, Ca, Ba, and Fe.
+
+The goal is to explore the predictor distributions, review relationships between predictors, check for skewness and outliers, and decide if transformations may help before building a classification model.
+
+## Approach
+
+I first checked the structure of the Glass data. Then I reviewed the class distribution, predictor distributions, boxplots, correlations, skewness, and possible outliers. My goal was to decide what preprocessing steps should be used before fitting a classification model.
+
+## R Code
+
+```{r kj-3-1-load-data}
+data(Glass)
+
+glass_data <- Glass
+
+str(glass_data)
+summary(glass_data)
+```
+
+The `str()` output confirms 214 rows, nine numeric predictors, and a factor class variable `Type` with six levels in the mlbench version of the data.
+
+```{r kj-3-1-class-distribution}
+glass_class_distribution <- glass_data |>
+  count(Type) |>
+  mutate(percent = round(100 * n / sum(n), 1)) |>
+  arrange(desc(n))
+
+glass_class_distribution
+```
+
+This table shows how many samples fall into each glass type and what percent of the data each type represents, which helps identify class imbalance before modeling.
+
+```{r kj-3-1-class-plot}
+glass_data |>
+  ggplot(aes(x = Type)) +
+  geom_bar() +
+  labs(
+    title = "Glass Type Distribution",
+    x = "Glass Type",
+    y = "Count"
+  )
+```
+
+This bar chart shows whether any glass type has many more records than the others, which matters before building a classification model.
+
+```{r kj-3-1-predictor-distributions}
+glass_long <- glass_data |>
+  pivot_longer(
+    cols = -Type,
+    names_to = "Predictor",
+    values_to = "Value"
+  )
+
+glass_long |>
+  ggplot(aes(x = Value)) +
+  geom_histogram(bins = 25) +
+  facet_wrap(~ Predictor, scales = "free") +
+  labs(
+    title = "Distribution of Glass Predictors",
+    x = "Value",
+    y = "Count"
+  )
+```
+
+The histograms show the shape of each predictor's distribution, some are roughly symmetric while others lean heavily to one side, suggesting those predictors may need a transformation before modeling.
+
+```{r kj-3-1-boxplots}
+glass_long |>
+  ggplot(aes(x = Predictor, y = Value)) +
+  geom_boxplot() +
+  facet_wrap(~ Predictor, scales = "free") +
+  labs(
+    title = "Boxplots for Glass Predictors",
+    x = "Predictor",
+    y = "Value"
+  ) +
+  theme(axis.text.x = element_blank())
+
+glass_long |>
+  ggplot(aes(x = Type, y = Value)) +
+  geom_boxplot() +
+  facet_wrap(~ Predictor, scales = "free_y") +
+  labs(
+    title = "Glass Predictors by Glass Type",
+    x = "Glass Type",
+    y = "Value"
+  )
+```
+
+The first set of boxplots shows the overall spread and possible outliers for each predictor. The second set shows how each predictor differs across glass types, which helps see whether any predictor separates the classes well.
+
+```{r kj-3-1-correlation-check}
+glass_predictors <- glass_data |>
+  select(-Type)
+
+glass_cor <- cor(glass_predictors)
+
+round(glass_cor, 2)
+
+glass_cor_df <- as.data.frame(as.table(glass_cor))
+
+glass_cor_df |>
+  ggplot(aes(Var1, Var2, fill = Freq)) +
+  geom_tile() +
+  labs(
+    title = "Correlation Heatmap for Glass Predictors",
+    x = "Predictor",
+    y = "Predictor",
+    fill = "Correlation"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Darker tiles in the heatmap indicate stronger correlations between two predictors, which matters for models that are sensitive to multicollinearity such as linear regression or PCA.
+
+```{r kj-3-1-skewness-check}
+skewness_check <- function(x) {
+  x <- x[!is.na(x)]
+  if (sd(x) == 0) {
+    return(NA_real_)
+  }
+  mean((x - mean(x))^3) / sd(x)^3
+}
+
+glass_skewness <- glass_predictors |>
+  summarise(across(everything(), skewness_check)) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "Predictor",
+    values_to = "Skewness"
+  ) |>
+  mutate(abs_skewness = abs(Skewness)) |>
+  arrange(desc(abs_skewness))
+
+glass_skewness
+```
+
+This table ranks predictors from most to least skewed, a higher absolute value means the distribution leans further to one side and is more likely to need a transformation.
+
+```{r kj-3-1-outlier-check}
+outlier_count <- function(x) {
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr_value <- IQR(x, na.rm = TRUE)
+  lower <- q1 - 1.5 * iqr_value
+  upper <- q3 + 1.5 * iqr_value
+  sum(x < lower | x > upper, na.rm = TRUE)
+}
+
+glass_outliers <- glass_predictors |>
+  summarise(across(everything(), outlier_count)) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "Predictor",
+    values_to = "Outlier_Count"
+  ) |>
+  arrange(desc(Outlier_Count))
+
+glass_outliers
+```
+
+This table shows how many values fall outside the IQR fences for each predictor using the standard 1.5 × IQR rule, a higher count means that predictor has more extreme values to investigate.
+
+```{r kj-3-1-transformation-example}
+glass_transformed <- glass_data |>
+  mutate(
+    Ba_log = log1p(Ba),
+    Fe_log = log1p(Fe),
+    K_log  = log1p(K)
+  )
+
+summary(glass_transformed |> select(Ba, Ba_log, Fe, Fe_log, K, K_log))
+
+glass_transformed |>
+  select(Ba, Ba_log, Fe, Fe_log, K, K_log) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "Predictor",
+    values_to = "Value"
+  ) |>
+  ggplot(aes(x = Value)) +
+  geom_histogram(bins = 25) +
+  facet_wrap(~ Predictor, scales = "free") +
+  labs(
+    title = "Original and Log-Transformed Predictors",
+    x = "Value",
+    y = "Count"
+  )
+```
+
+The log-transformed columns show flatter, more spread-out distributions compared to the original heavily skewed predictors, which is what we want before using distance-based or linear models.
+
+```{r kj-3-1-skewness-before-after}
+# Compare skewness before and after log1p transformation
+skew_comparison <- tibble(
+  Predictor     = c("Ba", "Fe", "K"),
+  Skew_Original = c(
+    skewness_check(glass_data$Ba),
+    skewness_check(glass_data$Fe),
+    skewness_check(glass_data$K)
+  ),
+  Skew_Log1p = c(
+    skewness_check(log1p(glass_data$Ba)),
+    skewness_check(log1p(glass_data$Fe)),
+    skewness_check(log1p(glass_data$K))
+  )
+) |>
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+skew_comparison
+```
+
+This table compares the skewness values before and after the log transformation to show how much the transformation actually reduced skewness for the three most skewed predictors.
+
+## Code Results
+
+```{r kj-3-1-results}
+top_skewed <- glass_skewness |>
+  slice(1:3)
+
+top_outliers <- glass_outliers |>
+  slice(1:3)
+
+cor_pairs <- glass_cor_df |>
+  filter(as.character(Var1) < as.character(Var2)) |>
+  mutate(abs_corr = abs(Freq)) |>
+  arrange(desc(abs_corr)) |>
+  slice(1:5)
+
+top_skewed
+top_outliers
+cor_pairs
+
+cat("Most skewed predictor:", top_skewed$Predictor[1], "\n")
+cat("Predictor with most possible outliers:", top_outliers$Predictor[1], "\n")
+cat("Strongest correlation pair:",
+    as.character(cor_pairs$Var1[1]), "and",
+    as.character(cor_pairs$Var2[1]), "\n")
+```
+
+The Glass data has 214 observations, nine numeric predictors, and one class variable called `Type` with six levels in the mlbench version of the data.
+
+The class distribution shows that Type 2 has the most records and the data is not balanced across all types. The histograms and boxplots confirm that several predictors are right-skewed. The skewness table shows that `Ba`, `Fe`, and `K` are the three most skewed predictors. The skewness comparison table confirms that `log1p()` noticeably reduced the skewness for all three. The outlier table shows that `Ca` and `Ba` have the most values outside the IQR fences.
+
+The correlation heatmap and table show that `RI` and `Ca` have the strongest positive correlation. Highly correlated predictors may add extra complexity without adding much new information, depending on which model is used.
+
+## Interpretation
+
+I would not remove outliers automatically because they may be real glass measurements. I would first check if they are actual data errors or valid extreme values.
+
+For transformations, the skewness comparison table shows that `log1p()` reduced the skewness for `Ba`, `Fe`, and `K`. This is useful because `log1p()` handles zero values and pulls very large values closer to the rest of the distribution.
+
+My preprocessing plan is:
+
+1. Keep `Type` as the outcome variable.
+2. Check class balance before modeling — Type 2 is the most common class.
+3. Use `log1p()` on `Ba`, `Fe`, and `K` based on the skewness results.
+4. Center and scale all numeric predictors before using distance-based or linear models such as KNN, SVM, or PCA.
+5. Do not remove outliers unless there is a clear data error.
+6. Check if removing the correlated predictor pair `RI`/`Ca` improves model performance.
+
+## Reference
+
+Kuhn, M., & Johnson, K. (2013). *Applied predictive modeling* (Chapter 3, Exercise 3.1, p. 58). Springer. http://appliedpredictivemodeling.com/
+
+---
+
+# KJ 3.2
+
+## Problem
+
+The Soybean data contains 683 observations, 35 mostly categorical predictors, and 19 disease classes. The goal is to check the frequency distributions of the categorical predictors, review missing data, and create a plan for handling missing values.
+
+## Approach
+
+I first loaded the Soybean data and checked the class distribution. Since most predictors are categorical, I reviewed the frequency distribution of each predictor. Then I checked near-zero variance predictors, missing values by predictor, and missing values by class. After that, I created a simple imputation strategy.
+
+## R Code
+
+```{r kj-3-2-load-data}
+data(Soybean)
+
+soybean_data <- Soybean
+
+str(soybean_data)
+summary(soybean_data)
+```
+
+The `str()` output confirms 683 rows, 35 predictors that are mostly ordered factors, and one class variable with 19 disease categories.
+
+```{r kj-3-2-class-distribution}
+soybean_class_distribution <- soybean_data |>
+  count(Class) |>
+  mutate(percent = round(100 * n / sum(n), 1)) |>
+  arrange(desc(n))
+
+soybean_class_distribution
+```
+
+This table shows how many observations belong to each disease class, some classes have many more records than others, so the data is not evenly balanced.
+
+```{r kj-3-2-class-plot}
+soybean_data |>
+  ggplot(aes(x = fct_infreq(Class))) +
+  geom_bar() +
+  coord_flip() +
+  labs(
+    title = "Soybean Class Distribution",
+    x = "Class",
+    y = "Count"
+  )
+```
+
+This bar chart makes it easy to see which disease classes are most and least common in the dataset, which is useful before building a classification model.
+
+```{r kj-3-2-frequency-distributions}
+# Convert all predictors to character before pivot_longer to avoid
+# type conflicts across mixed factor levels
+soybean_predictors <- soybean_data |>
+  select(-Class) |>
+  mutate(across(everything(), as.character))
+
+predictor_frequency <- soybean_predictors |>
+  pivot_longer(
+    cols = everything(),
+    names_to  = "Predictor",
+    values_to = "Value"
+  ) |>
+  count(Predictor, Value, name = "n") |>
+  group_by(Predictor) |>
+  mutate(percent = round(100 * n / sum(n), 1)) |>
+  arrange(Predictor, desc(n))
+
+predictor_frequency
+
+predictor_frequency |>
+  ggplot(aes(x = Value, y = n)) +
+  geom_col() +
+  facet_wrap(~ Predictor, scales = "free") +
+  labs(
+    title = "Frequency Distributions for Soybean Predictors",
+    x = "Category",
+    y = "Count"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The frequency table and bar charts show how values are distributed for each predictor, predictors with only one visible bar may have near-zero variance and may not help the model.
+
+```{r kj-3-2-degenerate-check}
+degenerate_check <- predictor_frequency |>
+  group_by(Predictor) |>
+  summarise(
+    unique_values        = n_distinct(Value),
+    top_category_percent = max(percent, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(top_category_percent))
+
+degenerate_check
+```
+
+This table ranks predictors by the percent of observations in their most common category, predictors at the top with very high percentages are close to degenerate and may not add useful information to the model.
+
+```{r kj-3-2-near-zero-variance, message=FALSE}
+# Use a factor version of the predictors for nearZeroVar()
+soybean_predictors_nzv <- soybean_data |>
+  select(-Class) |>
+  mutate(across(everything(), as.factor))
+
+nzv_soybean <- nearZeroVar(
+  soybean_predictors_nzv,
+  saveMetrics = TRUE
+)
+
+nzv_table <- nzv_soybean |>
+  rownames_to_column("Predictor") |>
+  arrange(desc(nzv), desc(freqRatio))
+
+nzv_table
+```
+
+The `nearZeroVar()` table flags any predictor where one value dominates the distribution by a wide margin, with `nzv = TRUE` meaning the predictor has very little useful variation for modeling.
+
+```{r kj-3-2-missing-by-predictor}
+missing_by_predictor <- soybean_data |>
+  summarise(across(everything(), ~ sum(is.na(.)))) |>
+  pivot_longer(
+    cols = everything(),
+    names_to  = "Variable",
+    values_to = "Missing_Count"
+  ) |>
+  mutate(Missing_Percent = round(100 * Missing_Count / nrow(soybean_data), 1)) |>
+  arrange(desc(Missing_Percent))
+
+missing_by_predictor
+
+missing_by_predictor |>
+  filter(Missing_Count > 0) |>
+  ggplot(aes(x = reorder(Variable, Missing_Percent), y = Missing_Percent)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Missing Data Percent by Variable",
+    x = "Variable",
+    y = "Missing Percent"
+  )
+```
+
+The table and bar chart show which predictors have the most missing values as a percent of total rows, predictors at the top may need to be removed or imputed depending on how much data is missing.
+
+```{r kj-3-2-missing-by-class}
+soybean_missing_rows <- soybean_data |>
+  mutate(row_missing = rowSums(across(-Class, is.na)))
+
+missing_by_class <- soybean_missing_rows |>
+  group_by(Class) |>
+  summarise(
+    rows        = n(),
+    avg_missing = round(mean(row_missing), 2),
+    max_missing = max(row_missing),
+    .groups = "drop"
+  ) |>
+  arrange(desc(avg_missing))
+
+missing_by_class
+
+missing_by_class |>
+  ggplot(aes(x = reorder(Class, avg_missing), y = avg_missing)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Average Missing Values by Soybean Class",
+    x = "Class",
+    y = "Average Missing Values Per Row"
+  )
+```
+
+The table and bar chart show which disease classes have the most missing values on average, if only a few classes drive most of the missingness, the missing data is likely not random.
+
+```{r kj-3-2-missing-pattern}
+soybean_missing_pattern <- soybean_missing_rows |>
+  count(Class, row_missing) |>
+  arrange(Class, row_missing)
+
+soybean_missing_pattern
+```
+
+This table shows, for each class, how many rows have a given number of missing predictors, making it easier to see which classes contribute most to the missing data problem.
+
+```{r kj-3-2-mode-imputation}
+mode_value <- function(x) {
+  ux <- na.omit(unique(x))
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+soybean_imputed <- soybean_data
+
+for (nm in names(soybean_imputed)) {
+  if (nm != "Class" && anyNA(soybean_imputed[[nm]])) {
+    mv <- mode_value(soybean_imputed[[nm]])
+    soybean_imputed[[nm]][is.na(soybean_imputed[[nm]])] <- mv
+  }
+}
+
+sum(is.na(soybean_imputed))
+summary(soybean_imputed)
+```
+
+After mode imputation, the missing value count drops to zero, confirming that every `NA` was replaced with the most common value for that predictor.
+
+```{r kj-3-2-remove-high-missing}
+high_missing_predictors <- missing_by_predictor |>
+  filter(Variable != "Class", Missing_Percent > 40) |>
+  pull(Variable)
+
+high_missing_predictors
+
+soybean_reduced <- soybean_data |>
+  select(-all_of(high_missing_predictors))
+
+dim(soybean_data)
+dim(soybean_reduced)
+```
+
+Removing predictors with more than 40% missing values reduces the number of columns the model has to work with, while keeping the rows and class variable intact.
+
+## Code Results
+
+```{r kj-3-2-results}
+nzv_flagged <- nzv_table |>
+  filter(nzv == TRUE) |>
+  pull(Predictor)
+
+top_degenerate <- degenerate_check |>
+  slice(1:5)
+
+top_missing_predictors <- missing_by_predictor |>
+  filter(Variable != "Class") |>
+  slice(1:5)
+
+top_missing_classes <- missing_by_class |>
+  slice(1:5)
+
+top_degenerate
+nzv_flagged
+top_missing_predictors
+top_missing_classes
+
+cat("Number of near-zero variance predictors:", length(nzv_flagged), "\n")
+cat("Predictor with highest missing percent:", top_missing_predictors$Variable[1], "\n")
+cat("Class with highest average missing values:", as.character(top_missing_classes$Class[1]), "\n")
+cat("Missing values after simple mode imputation:", sum(is.na(soybean_imputed)), "\n")
+```
+
+The Soybean data has 683 observations, 35 predictors, and 19 disease classes.
+
+The frequency tables and bar charts show how each categorical predictor is distributed. The degenerate check table shows if one category takes up most of a predictor. The `nearZeroVar()` table flags predictors with very little useful variation.
+
+The missing data table shows which predictors have the most missing values. The missing-by-class table shows that certain disease classes account for most of the missing data, which suggests the missingness is not random, it is connected to specific classes. After the simple mode imputation, the missing value count drops to zero.
+
+## Interpretation
+
+A degenerate predictor is one where almost all observations fall into one category. If a predictor has very little variation, it may not help the model learn anything useful.
+
+The missing-by-class table is important. If certain disease classes have nearly all the missing values, then the missingness is informative — it is tied to the class label. In that case, simply deleting those rows would remove too much data from specific classes and would make the class imbalance worse.
+
+I would not delete rows right away. Since most predictors are categorical, mode imputation is a simple and reasonable first approach. I would only remove a predictor if it has very high missingness or almost no variation.
+
+My missing data plan is:
+
+1. Remove predictors with very high missingness (above 40%).
+2. Remove predictors flagged by `nearZeroVar()` as having almost no variation.
+3. Use mode imputation for the remaining categorical predictors.
+4. Keep the class variable separate during all preprocessing steps.
+5. Check the class distribution again after preprocessing to confirm balance has not changed.
+6. Use resampling or cross-validation later to see if preprocessing choices improved model performance.
+
+## Reference
+
+Kuhn, M., & Johnson, K. (2013). *Applied predictive modeling* (Chapter 3, Exercise 3.2, p. 59). Springer. http://appliedpredictivemodeling.com/

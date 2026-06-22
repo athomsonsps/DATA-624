@@ -1,0 +1,614 @@
+---
+title: "DATA 624 Week 4: KJ 6.3"
+author: "Andre Thomson"
+date: "2026-06-19"
+output:
+  word_document:
+    toc: true
+    toc_depth: 2
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 5
+)
+
+set.seed(624)
+```
+
+# Problem
+
+Kuhn and Johnson Exercise 6.3 uses a chemical manufacturing process for a pharmaceutical product.
+
+The goal is to understand the relationship between three things:
+
+1. Biological measurements of the raw material.
+2. Manufacturing process measurements.
+3. Final product yield.
+
+The biological predictors cannot be changed, but they can help check the quality of the raw material before production. The manufacturing process predictors may be changed or reviewed during production. The problem also states that improving yield by 1 percent can increase revenue by about $100,000 per batch.
+
+The assignment asks me to:
+
+1. Load the chemical manufacturing data.
+2. Impute missing predictor values.
+3. Split the data into training and test sets.
+4. Pre-process the data.
+5. Tune a model from Chapter 6.
+6. Report the best performance metric.
+7. Predict the response for the test set.
+
+# Approach
+
+I treated this as a regression problem because yield is numeric.
+
+I compared several Chapter 6 models:
+
+- Linear regression
+- Partial least squares
+- Ridge regression
+- Lasso regression
+- Elastic net regression
+
+I used RMSE as the main performance metric. Lower RMSE means the model is making smaller prediction errors.
+
+I used an 80/20 training and test split. I used the training set to build and tune the models. I kept the test set separate until the end.
+
+For missing values, I used median imputation. I also centered and scaled the predictors because PLS and penalized regression work better when predictors are on a common scale.
+
+# Explanation
+
+This section explains the assignment in plain English.
+
+## What the Data Means
+
+The response variable is percent yield. Yield tells us how much usable product comes out of the manufacturing process.
+
+Higher yield is better because it can mean less waste, better production, and more revenue.
+
+## Why the Predictors Matter
+
+The biological predictors describe the starting raw material. These are useful before production starts.
+
+The process predictors describe what happens during manufacturing. These are important because some process settings may be changed or reviewed.
+
+## Why Missing Values Were Imputed
+
+Some predictor values are missing. I did not delete rows because the data set is small. Deleting rows would remove useful manufacturing runs.
+
+Median imputation fills missing values using the median of that predictor. This keeps the full data set usable.
+
+## Why the Data Was Split
+
+The training set is used to build the models. The test set is used at the end to check how well the selected model performs on data it did not train on.
+
+This helps avoid judging the model only on data it already saw.
+
+## Why Cross-Validation Was Used
+
+Cross-validation tests the model several times on different splits of the training data.
+
+I used repeated 10-fold cross-validation for the caret models. For the penalized models, I used cross-validation through `cv.glmnet`.
+
+## Why These Models Were Used
+
+Linear regression is the baseline model. It is simple and easy to explain.
+
+PLS is useful when predictors are correlated. That matters here because manufacturing measurements can be related to each other.
+
+Penalized regression helps reduce overfitting. Ridge, lasso, and elastic net shrink the model coefficients in different ways.
+
+# Packages
+
+Run the install chunk one time if a package is missing.
+
+```{r install-packages, eval=FALSE}
+install.packages(c(
+  "AppliedPredictiveModeling",
+  "caret",
+  "glmnet",
+  "pls",
+  "dplyr",
+  "ggplot2",
+  "tidyr",
+  "tibble",
+  "knitr"
+))
+```
+
+```{r packages}
+required_packages <- c(
+  "AppliedPredictiveModeling",
+  "caret",
+  "glmnet",
+  "pls",
+  "dplyr",
+  "ggplot2",
+  "tidyr",
+  "tibble",
+  "knitr"
+)
+
+missing_packages <- required_packages[!required_packages %in% rownames(installed.packages())]
+
+if (length(missing_packages) > 0) {
+  stop(paste("Install these packages first:", paste(missing_packages, collapse = ", ")))
+}
+
+library(AppliedPredictiveModeling)
+library(caret)
+library(glmnet)
+library(pls)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(knitr)
+```
+
+# Part A: Load the Data
+
+```{r load-data}
+# The book uses data(chemicalManufacturing), which should load processPredictors and yield.
+# Some installed versions of the package may also include ChemicalManufacturingProcess.
+# This code handles both versions so the file is easier to run.
+
+available_data <- data(package = "AppliedPredictiveModeling")$results[, "Item"]
+
+if ("chemicalManufacturing" %in% available_data) {
+  data("chemicalManufacturing", package = "AppliedPredictiveModeling")
+}
+
+if (exists("processPredictors") && exists("yield")) {
+  x_raw <- as.data.frame(processPredictors)
+  y <- as.numeric(yield)
+} else if ("ChemicalManufacturingProcess" %in% available_data) {
+  data("ChemicalManufacturingProcess", package = "AppliedPredictiveModeling")
+  chem_data <- as.data.frame(ChemicalManufacturingProcess)
+  x_raw <- chem_data %>% dplyr::select(-Yield)
+  y <- as.numeric(chem_data$Yield)
+} else {
+  stop("Chemical manufacturing data was not found in the AppliedPredictiveModeling package.")
+}
+
+basic_check <- tibble(
+  item = c(
+    "Manufacturing runs",
+    "Predictors",
+    "Missing predictor cells",
+    "Missing yield values"
+  ),
+  value = c(
+    nrow(x_raw),
+    ncol(x_raw),
+    sum(is.na(x_raw)),
+    sum(is.na(y))
+  )
+)
+
+kable(basic_check, caption = "Basic data check")
+```
+
+The data has `r nrow(x_raw)` manufacturing runs and `r ncol(x_raw)` predictors. The response variable is percent yield.
+
+```{r predictor-groups}
+bio_cols_raw <- grep("^Biological", names(x_raw), value = TRUE)
+process_cols_raw <- grep("^Manufacturing|^Process", names(x_raw), value = TRUE)
+
+predictor_group_table <- tibble(
+  predictor_group = c("Biological raw material", "Manufacturing process", "Other predictor names"),
+  number_of_predictors = c(
+    length(bio_cols_raw),
+    length(process_cols_raw),
+    ncol(x_raw) - length(bio_cols_raw) - length(process_cols_raw)
+  )
+)
+
+kable(predictor_group_table, caption = "Predictor groups found from column names")
+```
+
+The book describes 12 biological predictors and 45 process predictors. The code checks the predictor names so the report is clear.
+
+# Part B: Missing Values and Imputation
+
+```{r missing-values}
+missing_table <- x_raw %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "predictor", values_to = "missing_count") %>%
+  filter(missing_count > 0) %>%
+  arrange(desc(missing_count))
+
+if (nrow(missing_table) == 0) {
+  missing_table <- tibble(predictor = "No predictors with missing values", missing_count = 0)
+}
+
+kable(missing_table, caption = "Missing values by predictor")
+```
+
+There are missing values in the predictor set. I used median imputation during pre-processing. I did this because the data set is small and I did not want to remove useful manufacturing runs.
+
+# Part C: Prepare Data, Split, and Pre-process
+
+```{r prepare-data}
+# Convert any non-numeric predictors into dummy variables if needed.
+dummy_model <- dummyVars(~ ., data = x_raw, fullRank = TRUE)
+x_all <- as.data.frame(predict(dummy_model, newdata = x_raw))
+
+# Remove predictors with almost no variation.
+nzv_cols <- nearZeroVar(x_all)
+
+if (length(nzv_cols) > 0) {
+  x_all <- x_all[, -nzv_cols, drop = FALSE]
+}
+
+prep_table <- tibble(
+  item = c(
+    "Predictors after dummy coding",
+    "Near-zero variance predictors removed",
+    "Predictors used for modeling"
+  ),
+  value = c(
+    ncol(as.data.frame(predict(dummy_model, newdata = x_raw))),
+    length(nzv_cols),
+    ncol(x_all)
+  )
+)
+
+kable(prep_table, caption = "Prepared predictor check")
+```
+
+```{r split-data}
+set.seed(624)
+
+train_index <- createDataPartition(y, p = 0.80, list = FALSE)
+
+x_train_raw <- x_all[train_index, , drop = FALSE]
+x_test_raw <- x_all[-train_index, , drop = FALSE]
+
+y_train <- y[train_index]
+y_test <- y[-train_index]
+
+split_table <- tibble(
+  data_set = c("Training", "Test"),
+  rows = c(nrow(x_train_raw), nrow(x_test_raw))
+)
+
+kable(split_table, caption = "Training and test split")
+```
+
+```{r preprocess-data}
+preprocess_fit <- preProcess(
+  x_train_raw,
+  method = c("medianImpute", "center", "scale")
+)
+
+x_train <- predict(preprocess_fit, x_train_raw)
+x_test <- predict(preprocess_fit, x_test_raw)
+
+preprocess_table <- tibble(
+  step = c("Median imputation", "Centering", "Scaling"),
+  reason = c(
+    "Fills missing predictor values without deleting rows.",
+    "Puts predictors around a mean of zero.",
+    "Puts predictors on a common scale for PLS and penalized regression."
+  )
+)
+
+kable(preprocess_table, caption = "Pre-processing steps")
+```
+
+The split and pre-processing steps were done before modeling. I fit the pre-processing on the training set and then applied it to the test set. This avoids leaking information from the test set into the model-building process.
+
+# Part D: Model 1 - Linear Regression
+
+```{r model-linear-regression}
+set.seed(624)
+
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 5
+)
+
+lm_fit <- train(
+  x = x_train,
+  y = y_train,
+  method = "lm",
+  metric = "RMSE",
+  trControl = ctrl
+)
+
+lm_fit
+```
+
+Linear regression is the baseline model. It is easy to explain, but it can struggle when predictors are correlated.
+
+# Part E: Model 2 - Partial Least Squares
+
+```{r model-pls}
+set.seed(624)
+
+pls_fit <- train(
+  x = x_train,
+  y = y_train,
+  method = "pls",
+  metric = "RMSE",
+  tuneLength = 20,
+  trControl = ctrl
+)
+
+pls_fit
+plot(pls_fit)
+```
+
+PLS is a good fit for this problem because it can handle many correlated predictors by creating components.
+
+# Part F: Model 3 - Penalized Regression
+
+```{r model-penalized-regression}
+x_train_matrix <- as.matrix(x_train)
+x_test_matrix <- as.matrix(x_test)
+
+set.seed(624)
+ridge_fit <- cv.glmnet(
+  x = x_train_matrix,
+  y = y_train,
+  alpha = 0,
+  nfolds = 10,
+  standardize = FALSE
+)
+
+set.seed(624)
+lasso_fit <- cv.glmnet(
+  x = x_train_matrix,
+  y = y_train,
+  alpha = 1,
+  nfolds = 10,
+  standardize = FALSE
+)
+
+set.seed(624)
+elastic_fit <- cv.glmnet(
+  x = x_train_matrix,
+  y = y_train,
+  alpha = 0.5,
+  nfolds = 10,
+  standardize = FALSE
+)
+
+penalized_summary <- tibble(
+  model = c("Ridge Regression", "Lasso Regression", "Elastic Net Regression"),
+  alpha = c(0, 1, 0.5),
+  lambda_min = c(ridge_fit$lambda.min, lasso_fit$lambda.min, elastic_fit$lambda.min),
+  cv_rmse = sqrt(c(min(ridge_fit$cvm), min(lasso_fit$cvm), min(elastic_fit$cvm)))
+)
+
+kable(penalized_summary, digits = 4, caption = "Penalized regression tuning results")
+```
+
+Penalized regression shrinks coefficients so the model does not overfit the training data. Ridge keeps more predictors. Lasso can shrink some predictors to zero. Elastic net is a mix of both.
+
+# Part G: Model Comparison
+
+```{r compare-models}
+lm_best <- lm_fit$results[which.min(lm_fit$results$RMSE), , drop = FALSE]
+pls_best <- pls_fit$results[which.min(pls_fit$results$RMSE), , drop = FALSE]
+
+model_summary <- tibble(
+  model = c(
+    "Linear Regression",
+    "Partial Least Squares",
+    penalized_summary$model
+  ),
+  tuning = c(
+    "None",
+    paste0("ncomp = ", pls_fit$bestTune$ncomp),
+    paste0("alpha = ", penalized_summary$alpha, ", lambda = ", round(penalized_summary$lambda_min, 5))
+  ),
+  cv_rmse = c(
+    lm_best$RMSE,
+    pls_best$RMSE,
+    penalized_summary$cv_rmse
+  ),
+  cv_r_squared = c(
+    lm_best$Rsquared,
+    pls_best$Rsquared,
+    NA_real_, NA_real_, NA_real_
+  )
+) %>%
+  arrange(cv_rmse)
+
+kable(model_summary, digits = 4, caption = "Cross-validated model comparison")
+```
+
+The best model is the model with the lowest cross-validated RMSE.
+
+```{r choose-best-model}
+best_model_name <- model_summary$model[1]
+best_model_name
+```
+
+The selected model is `r best_model_name`. The best cross-validated RMSE is `r round(model_summary$cv_rmse[1], 4)`.
+
+# Part H: Test Set Prediction
+
+```{r test-set-prediction}
+if (best_model_name == "Linear Regression") {
+  test_predictions <- predict(lm_fit, newdata = x_test)
+} else if (best_model_name == "Partial Least Squares") {
+  test_predictions <- predict(pls_fit, newdata = x_test)
+} else if (best_model_name == "Ridge Regression") {
+  test_predictions <- as.numeric(predict(ridge_fit, newx = x_test_matrix, s = "lambda.min"))
+} else if (best_model_name == "Lasso Regression") {
+  test_predictions <- as.numeric(predict(lasso_fit, newx = x_test_matrix, s = "lambda.min"))
+} else if (best_model_name == "Elastic Net Regression") {
+  test_predictions <- as.numeric(predict(elastic_fit, newx = x_test_matrix, s = "lambda.min"))
+}
+
+test_perf <- postResample(pred = test_predictions, obs = y_test)
+
+test_results <- tibble(
+  metric = names(test_perf),
+  value = as.numeric(test_perf)
+)
+
+kable(test_results, digits = 4, caption = "Final test set performance")
+```
+
+The test RMSE is `r round(as.numeric(test_perf["RMSE"]), 4)`. This is the final holdout check.
+
+If the test RMSE is close to the cross-validation RMSE, the model is more stable. If the test RMSE is much higher, the model may not generalize as well.
+
+# Part I: Observed vs. Predicted and Residuals
+
+```{r prediction-plots}
+prediction_data <- tibble(
+  observed = y_test,
+  predicted = as.numeric(test_predictions),
+  residual = observed - predicted
+)
+
+ggplot(prediction_data, aes(x = predicted, y = observed)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    title = "Observed vs Predicted Yield",
+    x = "Predicted Yield",
+    y = "Observed Yield"
+  )
+
+ggplot(prediction_data, aes(x = predicted, y = residual)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Residuals vs Predicted Yield",
+    x = "Predicted Yield",
+    y = "Residual"
+  )
+```
+
+The observed vs. predicted plot shows how close the predictions are to the real yield values. Points closer to the diagonal line mean better predictions.
+
+The residual plot shows the prediction errors. A good residual plot should look random around zero.
+
+# Part J: Variable Importance
+
+```{r variable-importance}
+get_glmnet_importance <- function(fit, model_label) {
+  coef_table <- as.matrix(coef(fit, s = "lambda.min"))
+  tibble(
+    predictor = rownames(coef_table),
+    Overall = abs(as.numeric(coef_table[, 1])),
+    model = model_label
+  ) %>%
+    filter(predictor != "(Intercept)") %>%
+    arrange(desc(Overall))
+}
+
+if (best_model_name == "Linear Regression") {
+  vip <- varImp(lm_fit, scale = TRUE)
+  vip_table <- vip$importance %>%
+    rownames_to_column("predictor") %>%
+    as_tibble() %>%
+    mutate(model = best_model_name)
+} else if (best_model_name == "Partial Least Squares") {
+  vip <- varImp(pls_fit, scale = TRUE)
+  vip_table <- vip$importance %>%
+    rownames_to_column("predictor") %>%
+    as_tibble() %>%
+    mutate(model = best_model_name)
+} else if (best_model_name == "Ridge Regression") {
+  vip_table <- get_glmnet_importance(ridge_fit, best_model_name)
+} else if (best_model_name == "Lasso Regression") {
+  vip_table <- get_glmnet_importance(lasso_fit, best_model_name)
+} else if (best_model_name == "Elastic Net Regression") {
+  vip_table <- get_glmnet_importance(elastic_fit, best_model_name)
+}
+
+if (!"Overall" %in% names(vip_table)) {
+  vip_table <- vip_table %>%
+    mutate(Overall = rowMeans(dplyr::select(., where(is.numeric)), na.rm = TRUE))
+}
+
+vip_table <- vip_table %>%
+  arrange(desc(Overall))
+
+top_15 <- vip_table %>%
+  slice_head(n = 15)
+
+kable(top_15, digits = 4, caption = "Top 15 predictors from the selected model")
+```
+
+Variable importance shows which predictors were most useful to the selected model. This does not prove cause and effect, but it gives the company a place to start its review.
+
+# Part K: Top Predictor Relationships
+
+```{r top-predictor-relationships}
+top_predictors <- top_15$predictor[1:min(6, nrow(top_15))]
+
+top_predictors <- top_predictors[top_predictors %in% names(x_train)]
+
+relationship_data <- x_train %>%
+  dplyr::select(all_of(top_predictors)) %>%
+  mutate(yield = y_train) %>%
+  pivot_longer(
+    cols = all_of(top_predictors),
+    names_to = "predictor",
+    values_to = "value"
+  )
+
+ggplot(relationship_data, aes(x = value, y = yield)) +
+  geom_point(alpha = 0.65) +
+  geom_smooth(method = "loess", se = FALSE) +
+  facet_wrap(~ predictor, scales = "free_x") +
+  labs(
+    title = "Top Predictor Relationships with Yield",
+    x = "Pre-processed Predictor Value",
+    y = "Yield"
+  )
+```
+
+These plots help explain how the top predictors relate to yield. The relationship may be positive, negative, flat, or nonlinear.
+
+# Final Answer
+
+The best model from this analysis is `r best_model_name` because it had the lowest cross-validated RMSE among the models I tested.
+
+The best cross-validated RMSE is `r round(model_summary$cv_rmse[1], 4)`. The final test RMSE is `r round(as.numeric(test_perf["RMSE"]), 4)`.
+
+I would use the selected model as a decision-support tool. The model can help flag manufacturing runs that may have lower yield and identify predictors that deserve more review.
+
+I would not change the manufacturing process based only on the model. Any process change should be reviewed by the manufacturing team and tested before being used.
+
+The biological predictors are useful for checking raw material quality before production. The process predictors are more actionable because they may point to steps in the process that can be adjusted or controlled.
+
+# Takeaway
+
+Linear regression is a useful baseline.
+
+PLS is useful when predictors are correlated.
+
+Ridge, lasso, and elastic net are useful when the model needs shrinkage to reduce overfitting.
+
+For this assignment, the best model is the one that balances prediction accuracy with a clear explanation of what variables matter.
+
+# References
+
+Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent. *Journal of Statistical Software, 33*(1), 1--22. https://www.jstatsoft.org/article/view/v033i01
+
+Kuhn, M. (2008). Building predictive models in R using the caret package. *Journal of Statistical Software, 28*(5), 1--26. https://www.jstatsoft.org/article/view/v028i05
+
+Kuhn, M., & Johnson, K. (2013). *Applied predictive modeling*. Springer.
+
+# Reproducibility
+
+```{r session-info}
+sessionInfo()
+```

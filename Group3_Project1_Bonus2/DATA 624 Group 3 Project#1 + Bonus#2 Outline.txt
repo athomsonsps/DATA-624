@@ -1,4 +1,4 @@
-DATA 624 Group 3 Project#1 and Bonus#2 Final .Rmd
+DATA 624 Group 3 Project#1 and Bonus#2 Final
 
 Executive Summary
 

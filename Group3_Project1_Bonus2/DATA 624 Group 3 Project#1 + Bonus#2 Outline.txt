@@ -1,0 +1,46 @@
+DATA 624 Group 3 Project#1 and Bonus#2 Final .Rmd
+
+Executive Summary
+
+Exercise #1: Lone Star Appliances
+- Board-Level Summary
+- Technical Work
+- Forecasting Models
+- Model Comparison
+- Forecast Table
+--Recommendation
+
+Exercise #2: Texas HealthLink
+- Board-Level Summary
+- Clinic-Level Forecasts
+- Systemwide Forecast
+- Model Comparison
+-- Recommendation
+
+Bonus #2: Interview-Ready Time Series Literacy
+- Executive Summary
+- Graph Commentary
+-- Mock Interview Q&A
+--- Final Conclusion
+--- References
+
+
+The project includes an Executive Summary that gives a short overview of the forecasting work for Lone Star Appliances and Texas HealthLink.
+
+Exercise #1: Lone Star Appliances forecasts quarterly appliance shipments using time series models. It focuses on shipment growth, seasonality, COVID disruption, and planning needs.
+
+Exercise #1 Technical Work includes R code, plots, STL decomposition, ETS, ARIMA, regression, seasonal naive modeling, model comparison, final forecasts, and residual checks.
+
+Exercise #1 Recommendation gives business guidance for production, staffing, inventory, logistics, and risk planning.
+
+Exercise #2: Texas HealthLink forecasts monthly patient visits for five clinics and the full system. It focuses on staffing, budgeting, scheduling, and clinic capacity.
+
+Exercise #2 Technical Work includes clinic-level forecasts, systemwide forecasts, model comparison, plots, and forecast tables.
+
+Exercise #2 Recommendation explains how HealthLink should use the clinic-level and systemwide forecasts for planning.
+
+Bonus #2 adds interview-ready time series explanations, graph commentary, and mock Q&A in plain language.
+
+The Final Conclusion wraps up the project and connects the forecasting results back to business decisions.
+
+The References section includes course/project sources and forecasting textbooks.

@@ -1,0 +1,1037 @@
+---
+title: "DATA 624 Project 1: Forecasting Report"
+subtitle: "Lone Star Appliances and Texas HealthLink"
+author: "Group 3"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  word_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 7,
+  fig.height = 4.5
+)
+```
+
+# Executive Summary
+
+This project uses time series forecasting to support planning decisions for two organizations.
+
+For **Lone Star Appliances**, the main question is how many units the company should expect to ship in the next several quarters. This matters for production, warehouse inventory, staffing, and logistics contracts.
+
+For **Texas HealthLink**, the main question is how many patient visits each clinic should expect over the next 12 months. This matters for staffing, budgeting, scheduling, and facility planning.
+
+Both datasets show growth over time and seasonal movement. Both also show disruption around the COVID period. Because of that, I would use the forecasts as planning baselines, not as exact promises. The best use of this report is to help leadership plan capacity, prepare for busy periods, and understand where the risk is.
+
+# Exercise #1: Lone Star Appliances
+
+## Problem and Approach
+
+For Lone Star, the forecast is used as a planning tool for a manufacturer. The main point is not just the model output. The main point is what the forecast means for production, staffing, inventory, and logistics.
+
+The Board should be able to answer three questions after reading this section:
+
+1. What is the shipment pattern?
+2. What should we expect next?
+3. What should the company do with the forecast?
+
+
+## Board-Level Summary
+
+Lone Star Appliances has a clear upward shipment pattern. Shipments generally increased from 2010 through 2021. The company also has a seasonal pattern. The fourth quarter is usually the strongest quarter, which makes sense for a business that ships appliances to retailers.
+
+The main issue is the 2020 disruption. Shipments dropped in 2020 Q2, then recovered. That tells me the business has a strong base demand, but it is still exposed to outside shocks. A forecast can help the Board plan, but it cannot remove risk.
+
+My recommendation is to use the final forecast as the baseline production plan. I would not plan staffing, inventory, or carrier contracts only around the average forecast. I would also keep a buffer for Q4 and for any quarter where demand moves above the expected range.
+
+## Business Decisions Supported
+
+The Lone Star forecast supports these decisions:
+
+- production planning for the next 1 to 3 years
+- staffing needs by quarter
+- warehouse inventory targets
+- logistics contracts with carriers
+- risk planning for high-demand quarters
+
+## Main Risk
+
+The biggest risk is that future demand may not follow the same pattern as the past. COVID showed that one shock can change shipments quickly. Supply chain issues, retailer orders, labor constraints, or economic changes could also change the forecast.
+
+## Exercise #1 Technical Work
+
+```{r lone-star-load-data}
+lone_star_text <- "year,quarter,shipments
+2010,1,60
+2010,2,63
+2010,3,66
+2010,4,70
+2011,1,62
+2011,2,65
+2011,3,69
+2011,4,73
+2012,1,65
+2012,2,69
+2012,3,73
+2012,4,78
+2013,1,68
+2013,2,72
+2013,3,77
+2013,4,82
+2014,1,72
+2014,2,77
+2014,3,82
+2014,4,88
+2015,1,82
+2015,2,88
+2015,3,93
+2015,4,101
+2016,1,86
+2016,2,92
+2016,3,98
+2016,4,107
+2017,1,90
+2017,2,97
+2017,3,104
+2017,4,114
+2018,1,95
+2018,2,103
+2018,3,111
+2018,4,122
+2019,1,100
+2019,2,108
+2019,3,117
+2019,4,129
+2020,1,96
+2020,2,85
+2020,3,110
+2020,4,124
+2021,1,107
+2021,2,116
+2021,3,126
+2021,4,139"
+
+lone_star <- read.csv(text = lone_star_text)
+
+lone_star$quarter_label <- paste0(lone_star$year, " Q", lone_star$quarter)
+lone_star$time_index <- seq_len(nrow(lone_star))
+lone_star$quarter_factor <- factor(lone_star$quarter)
+
+head(lone_star)
+```
+
+```{r lone-star-summary}
+summary(lone_star$shipments)
+```
+
+```{r lone-star-plot}
+library(ggplot2)
+
+p_lone_star <- ggplot(lone_star, aes(x = time_index, y = shipments)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(
+    breaks = seq(1, nrow(lone_star), by = 4),
+    labels = lone_star$year[seq(1, nrow(lone_star), by = 4)]
+  ) +
+  labs(
+    title = "Lone Star Appliances Quarterly Shipments",
+    x = "Year",
+    y = "Shipments (thousands of units)"
+  )
+
+p_lone_star
+```
+
+```{r lone-star-ts}
+library(forecast)
+
+lone_star_ts <- ts(lone_star$shipments, start = c(2010, 1), frequency = 4)
+
+plot(lone_star_ts,
+     main = "Lone Star Quarterly Shipments",
+     ylab = "Shipments (thousands)",
+     xlab = "Year")
+```
+
+```{r lone-star-decomposition}
+lone_star_decomp <- stl(lone_star_ts, s.window = "periodic")
+plot(lone_star_decomp)
+```
+
+```{r lone-star-models}
+set.seed(624)
+
+ls_snaive <- snaive(lone_star_ts, h = 12)
+ls_ets <- ets(lone_star_ts)
+ls_ets_fc <- forecast(ls_ets, h = 12)
+ls_arima <- auto.arima(lone_star_ts, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+ls_arima_fc <- forecast(ls_arima, h = 12)
+
+ls_reg <- tslm(lone_star_ts ~ trend + season)
+ls_reg_fc <- forecast(ls_reg, h = 12)
+
+ls_models <- list(
+  Seasonal_Naive = ls_snaive,
+  ETS = ls_ets_fc,
+  ARIMA = ls_arima_fc,
+  Regression = ls_reg_fc
+)
+
+ls_ets
+ls_arima
+summary(ls_reg)
+```
+
+```{r lone-star-accuracy}
+ls_accuracy <- rbind(
+  Seasonal_Naive = accuracy(ls_snaive)[1, c("RMSE", "MAE", "MAPE")],
+  ETS = accuracy(ls_ets_fc)[1, c("RMSE", "MAE", "MAPE")],
+  ARIMA = accuracy(ls_arima_fc)[1, c("RMSE", "MAE", "MAPE")],
+  Regression = accuracy(ls_reg_fc)[1, c("RMSE", "MAE", "MAPE")]
+)
+
+knitr::kable(round(ls_accuracy, 3), caption = "Lone Star model accuracy comparison")
+```
+
+```{r lone-star-select-champion}
+ls_accuracy_df <- data.frame(
+  model = rownames(ls_accuracy),
+  RMSE = ls_accuracy[, "RMSE"],
+  MAE = ls_accuracy[, "MAE"],
+  MAPE = ls_accuracy[, "MAPE"],
+  row.names = NULL
+)
+
+ls_champion_name <- ls_accuracy_df$model[which.min(ls_accuracy_df$RMSE)]
+ls_champion_name
+```
+
+```{r lone-star-forecast-table}
+ls_forecast <- if (ls_champion_name == "ETS") {
+  ls_ets_fc
+} else if (ls_champion_name == "ARIMA") {
+  ls_arima_fc
+} else if (ls_champion_name == "Regression") {
+  ls_reg_fc
+} else {
+  ls_snaive
+}
+
+ls_fc_table <- data.frame(
+  period = paste0(rep(2022:2024, each = 4), " Q", rep(1:4, times = 3)),
+  forecast = as.numeric(ls_forecast$mean),
+  lower_80 = as.numeric(ls_forecast$lower[, 1]),
+  upper_80 = as.numeric(ls_forecast$upper[, 1]),
+  lower_95 = as.numeric(ls_forecast$lower[, 2]),
+  upper_95 = as.numeric(ls_forecast$upper[, 2])
+)
+
+ls_fc_table_print <- ls_fc_table
+ls_fc_table_print[, c("forecast", "lower_80", "upper_80", "lower_95", "upper_95")] <-
+  round(ls_fc_table_print[, c("forecast", "lower_80", "upper_80", "lower_95", "upper_95")], 1)
+
+knitr::kable(ls_fc_table_print, caption = "Lone Star 12-quarter forecast")
+```
+
+```{r lone-star-forecast-plot}
+autoplot(ls_forecast) +
+  labs(
+    title = paste("Lone Star Forecast - Champion Model:", ls_champion_name),
+    x = "Year",
+    y = "Shipments (thousands)"
+  )
+```
+
+```{r lone-star-residuals}
+checkresiduals(if (ls_champion_name == "ETS") ls_ets else if (ls_champion_name == "ARIMA") ls_arima else ls_reg)
+```
+
+## Exercise #1 Recommendation
+
+Lone Star should use the forecast as a baseline for production and logistics planning. The company should plan extra capacity around the fourth quarter because the data shows stronger demand near year-end. The company should also keep a reserve plan because COVID showed that one quarter can move far away from the normal pattern.
+
+The Board should use the forecast as a planning baseline. Based on the historical pattern, demand is expected to keep rising with higher pressure in later quarters. I would not recommend planning only to the point forecast. I would use the forecast range because the company has already seen that shocks can change demand quickly.
+
+# Exercise #2: Texas HealthLink
+
+## Problem and Approach
+
+For Texas HealthLink, the forecast is used as a staffing and capacity planning tool. This section is more detailed than Exercise #1 because the data has five clinics and a systemwide total.
+
+The Board should be able to answer four questions after reading this section:
+
+1. Which clinics have the highest expected demand?
+2. What is the 12-month outlook for each clinic?
+3. What is the systemwide patient volume outlook?
+4. What staffing or facility risks should leadership watch?
+
+
+## Board-Level Summary
+
+Texas HealthLink has five clinics with monthly visit data from 2016 through 2023. The main business need is to forecast patient visits for each clinic and for the total system.
+
+This forecast supports staffing, budget planning, facility planning, and scheduling. Since patient demand can change by clinic, the systemwide forecast alone is not enough. Leadership needs both the total forecast and the clinic-level view.
+
+The early review shows that patient visits generally grow over time. Some clinics are larger than others, so staffing plans should not be spread evenly across all clinics. The COVID period also created volatility, which should be treated as a planning risk.
+
+## Business Decisions Supported
+
+The HealthLink forecast supports these decisions:
+
+- monthly staffing plans
+- clinic scheduling
+- budget planning
+- facility expansion decisions
+- systemwide resource allocation
+- risk planning for peak demand months
+
+## Exercise #2 Technical Work
+
+```{r healthlink-load-data}
+healthlink_text <- "row,clinic,month,visits
+1,Temple,2016-01-01,2059
+2,Temple,2016-02-01,2028
+3,Temple,2016-03-01,1930
+4,Temple,2016-04-01,1770
+5,Temple,2016-05-01,1797
+6,Temple,2016-06-01,1943
+7,Temple,2016-07-01,1921
+8,Temple,2016-08-01,1923
+9,Temple,2016-09-01,1815
+10,Temple,2016-10-01,1877
+11,Temple,2016-11-01,1841
+12,Temple,2016-12-01,1796
+13,Temple,2017-01-01,2001
+14,Temple,2017-02-01,2087
+15,Temple,2017-03-01,2005
+16,Temple,2017-04-01,1964
+17,Temple,2017-05-01,1839
+18,Temple,2017-06-01,2021
+19,Temple,2017-07-01,2063
+20,Temple,2017-08-01,2058
+21,Temple,2017-09-01,1974
+22,Temple,2017-10-01,1938
+23,Temple,2017-11-01,1933
+24,Temple,2017-12-01,1931
+25,Temple,2018-01-01,2127
+26,Temple,2018-02-01,2071
+27,Temple,2018-03-01,2107
+28,Temple,2018-04-01,2009
+29,Temple,2018-05-01,2143
+30,Temple,2018-06-01,2081
+31,Temple,2018-07-01,2142
+32,Temple,2018-08-01,2141
+33,Temple,2018-09-01,2006
+34,Temple,2018-10-01,2068
+35,Temple,2018-11-01,2167
+36,Temple,2018-12-01,2115
+37,Temple,2019-01-01,2218
+38,Temple,2019-02-01,2199
+39,Temple,2019-03-01,2109
+40,Temple,2019-04-01,2188
+41,Temple,2019-05-01,2040
+42,Temple,2019-06-01,2260
+43,Temple,2019-07-01,2339
+44,Temple,2019-08-01,2145
+45,Temple,2019-09-01,2202
+46,Temple,2019-10-01,2152
+47,Temple,2019-11-01,2082
+48,Temple,2019-12-01,2093
+49,Temple,2020-01-01,2216
+50,Temple,2020-02-01,2288
+51,Temple,2020-03-01,2240
+52,Temple,2020-04-01,2007
+53,Temple,2020-05-01,2100
+54,Temple,2020-06-01,1985
+55,Temple,2020-07-01,2367
+56,Temple,2020-08-01,2374
+57,Temple,2020-09-01,2276
+58,Temple,2020-10-01,2203
+59,Temple,2020-11-01,2265
+60,Temple,2020-12-01,2263
+61,Temple,2021-01-01,2442
+62,Temple,2021-02-01,2394
+63,Temple,2021-03-01,2483
+64,Temple,2021-04-01,2290
+65,Temple,2021-05-01,2383
+66,Temple,2021-06-01,2345
+67,Temple,2021-07-01,2340
+68,Temple,2021-08-01,2618
+69,Temple,2021-09-01,2327
+70,Temple,2021-10-01,2378
+71,Temple,2021-11-01,2406
+72,Temple,2021-12-01,2347
+73,Temple,2022-01-01,2535
+74,Temple,2022-02-01,2534
+75,Temple,2022-03-01,2507
+76,Temple,2022-04-01,2412
+77,Temple,2022-05-01,2414
+78,Temple,2022-06-01,2632
+79,Temple,2022-07-01,2468
+80,Temple,2022-08-01,2454
+81,Temple,2022-09-01,2450
+82,Temple,2022-10-01,2475
+83,Temple,2022-11-01,2490
+84,Temple,2022-12-01,2444
+85,Temple,2023-01-01,2536
+86,Temple,2023-02-01,2684
+87,Temple,2023-03-01,2595
+88,Temple,2023-04-01,2452
+89,Temple,2023-05-01,2498
+90,Temple,2023-06-01,2588
+91,Temple,2023-07-01,2675
+92,Temple,2023-08-01,2621
+93,Temple,2023-09-01,2589
+94,Temple,2023-10-01,2522
+95,Temple,2023-11-01,2573
+96,Temple,2023-12-01,2549
+97,Belton,2016-01-01,978
+98,Belton,2016-02-01,942
+99,Belton,2016-03-01,930
+100,Belton,2016-04-01,996
+101,Belton,2016-05-01,944
+102,Belton,2016-06-01,914
+103,Belton,2016-07-01,944
+104,Belton,2016-08-01,925
+105,Belton,2016-09-01,1024
+106,Belton,2016-10-01,992
+107,Belton,2016-11-01,933
+108,Belton,2016-12-01,970
+109,Belton,2017-01-01,1005
+110,Belton,2017-02-01,1007
+111,Belton,2017-03-01,998
+112,Belton,2017-04-01,940
+113,Belton,2017-05-01,1034
+114,Belton,2017-06-01,1010
+115,Belton,2017-07-01,1021
+116,Belton,2017-08-01,1030
+117,Belton,2017-09-01,1033
+118,Belton,2017-10-01,967
+119,Belton,2017-11-01,952
+120,Belton,2017-12-01,1063
+121,Belton,2018-01-01,1052
+122,Belton,2018-02-01,1045
+123,Belton,2018-03-01,1029
+124,Belton,2018-04-01,961
+125,Belton,2018-05-01,993
+126,Belton,2018-06-01,1085
+127,Belton,2018-07-01,1108
+128,Belton,2018-08-01,1096
+129,Belton,2018-09-01,1017
+130,Belton,2018-10-01,1038
+131,Belton,2018-11-01,1012
+132,Belton,2018-12-01,1015
+133,Belton,2019-01-01,1153
+134,Belton,2019-02-01,1081
+135,Belton,2019-03-01,1204
+136,Belton,2019-04-01,1056
+137,Belton,2019-05-01,1073
+138,Belton,2019-06-01,1078
+139,Belton,2019-07-01,1089
+140,Belton,2019-08-01,1063
+141,Belton,2019-09-01,1073
+142,Belton,2019-10-01,1101
+143,Belton,2019-11-01,1101
+144,Belton,2019-12-01,1061
+145,Belton,2020-01-01,1134
+146,Belton,2020-02-01,1150
+147,Belton,2020-03-01,1234
+148,Belton,2020-04-01,913
+149,Belton,2020-05-01,955
+150,Belton,2020-06-01,1082
+151,Belton,2020-07-01,1156
+152,Belton,2020-08-01,1110
+153,Belton,2020-09-01,1101
+154,Belton,2020-10-01,1151
+155,Belton,2020-11-01,1121
+156,Belton,2020-12-01,1118
+157,Belton,2021-01-01,1200
+158,Belton,2021-02-01,1222
+159,Belton,2021-03-01,1286
+160,Belton,2021-04-01,1152
+161,Belton,2021-05-01,1203
+162,Belton,2021-06-01,1229
+163,Belton,2021-07-01,1203
+164,Belton,2021-08-01,1151
+165,Belton,2021-09-01,1155
+166,Belton,2021-10-01,1160
+167,Belton,2021-11-01,1186
+168,Belton,2021-12-01,1240
+169,Belton,2022-01-01,1354
+170,Belton,2022-02-01,1328
+171,Belton,2022-03-01,1265
+172,Belton,2022-04-01,1134
+173,Belton,2022-05-01,1192
+174,Belton,2022-06-01,1256
+175,Belton,2022-07-01,1290
+176,Belton,2022-08-01,1299
+177,Belton,2022-09-01,1251
+178,Belton,2022-10-01,1172
+179,Belton,2022-11-01,1266
+180,Belton,2022-12-01,1218
+181,Belton,2023-01-01,1317
+182,Belton,2023-02-01,1317
+183,Belton,2023-03-01,1335
+184,Belton,2023-04-01,1253
+185,Belton,2023-05-01,1189
+186,Belton,2023-06-01,1329
+187,Belton,2023-07-01,1319
+188,Belton,2023-08-01,1297
+189,Belton,2023-09-01,1277
+190,Belton,2023-10-01,1281
+191,Belton,2023-11-01,1289
+192,Belton,2023-12-01,1350
+193,Killeen,2016-01-01,1385
+194,Killeen,2016-02-01,1410
+195,Killeen,2016-03-01,1466
+196,Killeen,2016-04-01,1377
+197,Killeen,2016-05-01,1387
+198,Killeen,2016-06-01,1367
+199,Killeen,2016-07-01,1502
+200,Killeen,2016-08-01,1411
+201,Killeen,2016-09-01,1447
+202,Killeen,2016-10-01,1292
+203,Killeen,2016-11-01,1367
+204,Killeen,2016-12-01,1434
+205,Killeen,2017-01-01,1432
+206,Killeen,2017-02-01,1436
+207,Killeen,2017-03-01,1433
+208,Killeen,2017-04-01,1343
+209,Killeen,2017-05-01,1380
+210,Killeen,2017-06-01,1485
+211,Killeen,2017-07-01,1373
+212,Killeen,2017-08-01,1491
+213,Killeen,2017-09-01,1488
+214,Killeen,2017-10-01,1534
+215,Killeen,2017-11-01,1503
+216,Killeen,2017-12-01,1482
+217,Killeen,2018-01-01,1454
+218,Killeen,2018-02-01,1516
+219,Killeen,2018-03-01,1534
+220,Killeen,2018-04-01,1503
+221,Killeen,2018-05-01,1469
+222,Killeen,2018-06-01,1477
+223,Killeen,2018-07-01,1630
+224,Killeen,2018-08-01,1598
+225,Killeen,2018-09-01,1510
+226,Killeen,2018-10-01,1565
+227,Killeen,2018-11-01,1443
+228,Killeen,2018-12-01,1549
+229,Killeen,2019-01-01,1586
+230,Killeen,2019-02-01,1652
+231,Killeen,2019-03-01,1621
+232,Killeen,2019-04-01,1572
+233,Killeen,2019-05-01,1613
+234,Killeen,2019-06-01,1612
+235,Killeen,2019-07-01,1669
+236,Killeen,2019-08-01,1565
+237,Killeen,2019-09-01,1534
+238,Killeen,2019-10-01,1652
+239,Killeen,2019-11-01,1601
+240,Killeen,2019-12-01,1485
+241,Killeen,2020-01-01,1616
+242,Killeen,2020-02-01,1680
+243,Killeen,2020-03-01,1739
+244,Killeen,2020-04-01,1407
+245,Killeen,2020-05-01,1449
+246,Killeen,2020-06-01,1532
+247,Killeen,2020-07-01,1774
+248,Killeen,2020-08-01,1699
+249,Killeen,2020-09-01,1639
+250,Killeen,2020-10-01,1560
+251,Killeen,2020-11-01,1659
+252,Killeen,2020-12-01,1631
+253,Killeen,2021-01-01,1707
+254,Killeen,2021-02-01,1753
+255,Killeen,2021-03-01,1819
+256,Killeen,2021-04-01,1584
+257,Killeen,2021-05-01,1669
+258,Killeen,2021-06-01,1762
+259,Killeen,2021-07-01,1717
+260,Killeen,2021-08-01,1785
+261,Killeen,2021-09-01,1735
+262,Killeen,2021-10-01,1718
+263,Killeen,2021-11-01,1603
+264,Killeen,2021-12-01,1861
+265,Killeen,2022-01-01,1818
+266,Killeen,2022-02-01,1867
+267,Killeen,2022-03-01,1854
+268,Killeen,2022-04-01,1807
+269,Killeen,2022-05-01,1803
+270,Killeen,2022-06-01,1818
+271,Killeen,2022-07-01,1853
+272,Killeen,2022-08-01,1793
+273,Killeen,2022-09-01,1829
+274,Killeen,2022-10-01,1769
+275,Killeen,2022-11-01,1919
+276,Killeen,2022-12-01,1721
+277,Killeen,2023-01-01,1877
+278,Killeen,2023-02-01,1947
+279,Killeen,2023-03-01,1938
+280,Killeen,2023-04-01,1799
+281,Killeen,2023-05-01,1784
+282,Killeen,2023-06-01,1907
+283,Killeen,2023-07-01,1905
+284,Killeen,2023-08-01,1822
+285,Killeen,2023-09-01,1860
+286,Killeen,2023-10-01,1874
+287,Killeen,2023-11-01,1879
+288,Killeen,2023-12-01,1823
+289,HarkerHeights,2016-01-01,830
+290,HarkerHeights,2016-02-01,864
+291,HarkerHeights,2016-03-01,835
+292,HarkerHeights,2016-04-01,722
+293,HarkerHeights,2016-05-01,750
+294,HarkerHeights,2016-06-01,815
+295,HarkerHeights,2016-07-01,783
+296,HarkerHeights,2016-08-01,733
+297,HarkerHeights,2016-09-01,808
+298,HarkerHeights,2016-10-01,751
+299,HarkerHeights,2016-11-01,763
+300,HarkerHeights,2016-12-01,839
+301,HarkerHeights,2017-01-01,822
+302,HarkerHeights,2017-02-01,882
+303,HarkerHeights,2017-03-01,811
+304,HarkerHeights,2017-04-01,786
+305,HarkerHeights,2017-05-01,798
+306,HarkerHeights,2017-06-01,798
+307,HarkerHeights,2017-07-01,820
+308,HarkerHeights,2017-08-01,844
+309,HarkerHeights,2017-09-01,836
+310,HarkerHeights,2017-10-01,758
+311,HarkerHeights,2017-11-01,807
+312,HarkerHeights,2017-12-01,848
+313,HarkerHeights,2018-01-01,866
+314,HarkerHeights,2018-02-01,896
+315,HarkerHeights,2018-03-01,908
+316,HarkerHeights,2018-04-01,843
+317,HarkerHeights,2018-05-01,860
+318,HarkerHeights,2018-06-01,871
+319,HarkerHeights,2018-07-01,864
+320,HarkerHeights,2018-08-01,788
+321,HarkerHeights,2018-09-01,846
+322,HarkerHeights,2018-10-01,867
+323,HarkerHeights,2018-11-01,874
+324,HarkerHeights,2018-12-01,839
+325,HarkerHeights,2019-01-01,983
+326,HarkerHeights,2019-02-01,934
+327,HarkerHeights,2019-03-01,931
+328,HarkerHeights,2019-04-01,915
+329,HarkerHeights,2019-05-01,848
+330,HarkerHeights,2019-06-01,895
+331,HarkerHeights,2019-07-01,998
+332,HarkerHeights,2019-08-01,917
+333,HarkerHeights,2019-09-01,942
+334,HarkerHeights,2019-10-01,838
+335,HarkerHeights,2019-11-01,884
+336,HarkerHeights,2019-12-01,907
+337,HarkerHeights,2020-01-01,968
+338,HarkerHeights,2020-02-01,925
+339,HarkerHeights,2020-03-01,964
+340,HarkerHeights,2020-04-01,748
+341,HarkerHeights,2020-05-01,814
+342,HarkerHeights,2020-06-01,865
+343,HarkerHeights,2020-07-01,872
+344,HarkerHeights,2020-08-01,996
+345,HarkerHeights,2020-09-01,878
+346,HarkerHeights,2020-10-01,940
+347,HarkerHeights,2020-11-01,950
+348,HarkerHeights,2020-12-01,923
+349,HarkerHeights,2021-01-01,970
+350,HarkerHeights,2021-02-01,1002
+351,HarkerHeights,2021-03-01,1014
+352,HarkerHeights,2021-04-01,973
+353,HarkerHeights,2021-05-01,873
+354,HarkerHeights,2021-06-01,926
+355,HarkerHeights,2021-07-01,1036
+356,HarkerHeights,2021-08-01,1026
+357,HarkerHeights,2021-09-01,972
+358,HarkerHeights,2021-10-01,985
+359,HarkerHeights,2021-11-01,995
+360,HarkerHeights,2021-12-01,873
+361,HarkerHeights,2022-01-01,1068
+362,HarkerHeights,2022-02-01,1015
+363,HarkerHeights,2022-03-01,1043
+364,HarkerHeights,2022-04-01,968
+365,HarkerHeights,2022-05-01,1012
+366,HarkerHeights,2022-06-01,1007
+367,HarkerHeights,2022-07-01,1040
+368,HarkerHeights,2022-08-01,1011
+369,HarkerHeights,2022-09-01,955
+370,HarkerHeights,2022-10-01,1038
+371,HarkerHeights,2022-11-01,1025
+372,HarkerHeights,2022-12-01,1062
+373,HarkerHeights,2023-01-01,1067
+374,HarkerHeights,2023-02-01,1107
+375,HarkerHeights,2023-03-01,1140
+376,HarkerHeights,2023-04-01,1004
+377,HarkerHeights,2023-05-01,971
+378,HarkerHeights,2023-06-01,1047
+379,HarkerHeights,2023-07-01,1051
+380,HarkerHeights,2023-08-01,1066
+381,HarkerHeights,2023-09-01,1089
+382,HarkerHeights,2023-10-01,1021
+383,HarkerHeights,2023-11-01,1048
+384,HarkerHeights,2023-12-01,1030
+385,Waco,2016-01-01,1758
+386,Waco,2016-02-01,1781
+387,Waco,2016-03-01,1844
+388,Waco,2016-04-01,1685
+389,Waco,2016-05-01,1724
+390,Waco,2016-06-01,1805
+391,Waco,2016-07-01,1819
+392,Waco,2016-08-01,1744
+393,Waco,2016-09-01,1802
+394,Waco,2016-10-01,1699
+395,Waco,2016-11-01,1721
+396,Waco,2016-12-01,1811
+397,Waco,2017-01-01,1912
+398,Waco,2017-02-01,1788
+399,Waco,2017-03-01,1807
+400,Waco,2017-04-01,1687
+401,Waco,2017-05-01,1779
+402,Waco,2017-06-01,1855
+403,Waco,2017-07-01,1873
+404,Waco,2017-08-01,1890
+405,Waco,2017-09-01,1764
+406,Waco,2017-10-01,1749
+407,Waco,2017-11-01,1867
+408,Waco,2017-12-01,1859
+409,Waco,2018-01-01,1842
+410,Waco,2018-02-01,1927
+411,Waco,2018-03-01,1890
+412,Waco,2018-04-01,1732
+413,Waco,2018-05-01,1861
+414,Waco,2018-06-01,1926
+415,Waco,2018-07-01,1932
+416,Waco,2018-08-01,1956
+417,Waco,2018-09-01,1930
+418,Waco,2018-10-01,1899
+419,Waco,2018-11-01,1861
+420,Waco,2018-12-01,1862
+421,Waco,2019-01-01,2002
+422,Waco,2019-02-01,2033
+423,Waco,2019-03-01,1966
+424,Waco,2019-04-01,1920
+425,Waco,2019-05-01,1990
+426,Waco,2019-06-01,2008
+427,Waco,2019-07-01,1983
+428,Waco,2019-08-01,2013
+429,Waco,2019-09-01,2026
+430,Waco,2019-10-01,2002
+431,Waco,2019-11-01,2047
+432,Waco,2019-12-01,1994
+433,Waco,2020-01-01,2116
+434,Waco,2020-02-01,2069
+435,Waco,2020-03-01,2140
+436,Waco,2020-04-01,1766
+437,Waco,2020-05-01,1723
+438,Waco,2020-06-01,1885
+439,Waco,2020-07-01,2212
+440,Waco,2020-08-01,2156
+441,Waco,2020-09-01,2113
+442,Waco,2020-10-01,2076
+443,Waco,2020-11-01,2030
+444,Waco,2020-12-01,2059
+445,Waco,2021-01-01,2162
+446,Waco,2021-02-01,2158
+447,Waco,2021-03-01,2230
+448,Waco,2021-04-01,2032
+449,Waco,2021-05-01,2153
+450,Waco,2021-06-01,2230
+451,Waco,2021-07-01,2123
+452,Waco,2021-08-01,2231
+453,Waco,2021-09-01,2267
+454,Waco,2021-10-01,2109
+455,Waco,2021-11-01,2193
+456,Waco,2021-12-01,2111
+457,Waco,2022-01-01,2322
+458,Waco,2022-02-01,2282
+459,Waco,2022-03-01,2366
+460,Waco,2022-04-01,2102
+461,Waco,2022-05-01,2186
+462,Waco,2022-06-01,2237
+463,Waco,2022-07-01,2262
+464,Waco,2022-08-01,2245
+465,Waco,2022-09-01,2171
+466,Waco,2022-10-01,2256
+467,Waco,2022-11-01,2171
+468,Waco,2022-12-01,2320
+469,Waco,2023-01-01,2280
+470,Waco,2023-02-01,2358
+471,Waco,2023-03-01,2388
+472,Waco,2023-04-01,2298
+473,Waco,2023-05-01,2256
+474,Waco,2023-06-01,2354
+475,Waco,2023-07-01,2410
+476,Waco,2023-08-01,2284
+477,Waco,2023-09-01,2258
+478,Waco,2023-10-01,2326
+479,Waco,2023-11-01,2291
+480,Waco,2023-12-01,2397"
+
+healthlink <- read.csv(text = healthlink_text)
+healthlink$month <- as.Date(healthlink$month)
+healthlink$month_index <- as.numeric(format(healthlink$month, "%m"))
+healthlink$year <- as.numeric(format(healthlink$month, "%Y"))
+
+head(healthlink)
+```
+
+```{r healthlink-summary}
+library(dplyr)
+
+clinic_summary <- healthlink %>%
+  group_by(clinic) %>%
+  summarise(
+    first_month = min(month),
+    last_month = max(month),
+    avg_visits = mean(visits),
+    min_visits = min(visits),
+    max_visits = max(visits),
+    .groups = "drop"
+  )
+
+knitr::kable(clinic_summary, digits = 1, caption = "Texas HealthLink clinic visit summary")
+```
+
+```{r healthlink-plot-clinics}
+ggplot(healthlink, aes(x = month, y = visits)) +
+  geom_line() +
+  facet_wrap(~ clinic, scales = "free_y") +
+  labs(
+    title = "Monthly Patient Visits by Clinic",
+    x = "Month",
+    y = "Visits"
+  )
+```
+
+```{r healthlink-system-total}
+system_monthly <- healthlink %>%
+  group_by(month) %>%
+  summarise(visits = sum(visits), .groups = "drop")
+
+system_ts <- ts(system_monthly$visits, start = c(2016, 1), frequency = 12)
+
+plot(system_ts,
+     main = "Texas HealthLink Systemwide Monthly Visits",
+     ylab = "Visits",
+     xlab = "Year")
+```
+
+```{r healthlink-decomposition}
+system_decomp <- stl(system_ts, s.window = "periodic")
+plot(system_decomp)
+```
+
+```{r healthlink-system-models}
+hl_system_snaive <- snaive(system_ts, h = 12)
+hl_system_ets <- ets(system_ts)
+hl_system_ets_fc <- forecast(hl_system_ets, h = 12)
+hl_system_arima <- auto.arima(system_ts, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+hl_system_arima_fc <- forecast(hl_system_arima, h = 12)
+hl_system_reg <- tslm(system_ts ~ trend + season)
+hl_system_reg_fc <- forecast(hl_system_reg, h = 12)
+
+hl_system_accuracy <- rbind(
+  Seasonal_Naive = accuracy(hl_system_snaive)[1, c("RMSE", "MAE", "MAPE")],
+  ETS = accuracy(hl_system_ets_fc)[1, c("RMSE", "MAE", "MAPE")],
+  ARIMA = accuracy(hl_system_arima_fc)[1, c("RMSE", "MAE", "MAPE")],
+  Regression = accuracy(hl_system_reg_fc)[1, c("RMSE", "MAE", "MAPE")]
+)
+
+knitr::kable(round(hl_system_accuracy, 3), caption = "Texas HealthLink systemwide model accuracy comparison")
+```
+
+```{r healthlink-system-forecast}
+hl_system_accuracy_df <- data.frame(
+  model = rownames(hl_system_accuracy),
+  RMSE = hl_system_accuracy[, "RMSE"],
+  MAE = hl_system_accuracy[, "MAE"],
+  MAPE = hl_system_accuracy[, "MAPE"],
+  row.names = NULL
+)
+
+hl_system_champion <- hl_system_accuracy_df$model[which.min(hl_system_accuracy_df$RMSE)]
+hl_system_champion
+
+hl_system_forecast <- if (hl_system_champion == "ETS") {
+  hl_system_ets_fc
+} else if (hl_system_champion == "ARIMA") {
+  hl_system_arima_fc
+} else if (hl_system_champion == "Regression") {
+  hl_system_reg_fc
+} else {
+  hl_system_snaive
+}
+
+autoplot(hl_system_forecast) +
+  labs(
+    title = paste("Texas HealthLink Systemwide Forecast - Champion Model:", hl_system_champion),
+    x = "Year",
+    y = "Visits"
+  )
+```
+
+```{r healthlink-clinic-forecasts}
+make_clinic_forecast <- function(df, key) {
+  clinic_name <- as.character(key$clinic[1])
+  clinic_ts <- ts(df$visits, start = c(2016, 1), frequency = 12)
+
+  fit_ets <- ets(clinic_ts)
+  fit_arima <- auto.arima(clinic_ts, seasonal = TRUE)
+  fit_reg <- tslm(clinic_ts ~ trend + season)
+
+  fc_ets <- forecast(fit_ets, h = 12)
+  fc_arima <- forecast(fit_arima, h = 12)
+  fc_reg <- forecast(fit_reg, h = 12)
+  fc_snaive <- snaive(clinic_ts, h = 12)
+
+  acc <- rbind(
+    Seasonal_Naive = accuracy(fc_snaive)[1, c("RMSE", "MAE", "MAPE")],
+    ETS = accuracy(fc_ets)[1, c("RMSE", "MAE", "MAPE")],
+    ARIMA = accuracy(fc_arima)[1, c("RMSE", "MAE", "MAPE")],
+    Regression = accuracy(fc_reg)[1, c("RMSE", "MAE", "MAPE")]
+  )
+
+  best <- rownames(acc)[which.min(acc[, "RMSE"])]
+
+  fc <- if (best == "ETS") {
+    fc_ets
+  } else if (best == "ARIMA") {
+    fc_arima
+  } else if (best == "Regression") {
+    fc_reg
+  } else {
+    fc_snaive
+  }
+
+  # Do not return the clinic column here.
+  # group_modify() adds the grouping variable back automatically.
+  data.frame(
+    month = seq.Date(as.Date("2024-01-01"), by = "month", length.out = 12),
+    champion_model = best,
+    forecast = as.numeric(fc$mean),
+    lower_80 = as.numeric(fc$lower[, 1]),
+    upper_80 = as.numeric(fc$upper[, 1]),
+    lower_95 = as.numeric(fc$lower[, 2]),
+    upper_95 = as.numeric(fc$upper[, 2])
+  )
+}
+
+clinic_forecasts <- healthlink %>%
+  group_by(clinic) %>%
+  group_modify(~ make_clinic_forecast(.x, .y)) %>%
+  ungroup()
+
+knitr::kable(head(clinic_forecasts, 20), digits = 1, caption = "Clinic-level 12-month forecasts")
+```
+
+```{r healthlink-reconciled-total}
+reconciled_total <- clinic_forecasts %>%
+  group_by(month) %>%
+  summarise(
+    forecast = sum(forecast),
+    lower_80 = sum(lower_80),
+    upper_80 = sum(upper_80),
+    lower_95 = sum(lower_95),
+    upper_95 = sum(upper_95),
+    .groups = "drop"
+  )
+
+knitr::kable(reconciled_total, digits = 1, caption = "Bottom-up reconciled systemwide forecast")
+```
+
+```{r healthlink-forecast-plot-clinics}
+ggplot(clinic_forecasts, aes(x = month, y = forecast)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ clinic, scales = "free_y") +
+  labs(
+    title = "Texas HealthLink 12-Month Forecast by Clinic",
+    x = "Month",
+    y = "Forecasted visits"
+  )
+```
+
+## Exercise #2 Recommendation
+
+Texas HealthLink should use both the clinic-level forecasts and the systemwide forecast. The systemwide forecast helps with total budget planning. The clinic forecasts help with staffing and facility decisions. I would not recommend using one staffing rule for all clinics because the clinics have different demand levels.
+
+# Bonus #2: Interview-Ready Time Series Literacy
+
+## Executive Summary
+
+When I start a forecasting problem, I do not jump straight into the model. I first look at the time series plot because the plot usually tells the first part of the story. I want to see whether the data is moving up or down, whether there is seasonality, and whether there are unusual periods that should not be ignored.
+
+In this project, both datasets had a clear business purpose. Lone Star Appliances needed shipment forecasts to plan production, staffing, inventory, and logistics. Texas HealthLink needed patient visit forecasts to plan staffing, budgeting, scheduling, and clinic capacity.
+
+The main lesson from both exercises is that forecasting is not just a technical task. The forecast has to connect back to a decision. For Lone Star, the 2020 drop showed why leadership should not rely only on the point forecast. For HealthLink, the clinic-level forecasts matter because each clinic has a different demand level. A systemwide forecast helps with budgeting, but the clinic forecasts are better for staffing.
+
+My approach is simple. I check the pattern, test more than one model, compare the errors, review the residuals, and explain the forecast range in plain language. I do not treat the model as perfect. I treat it as a planning tool.
+
+## Graph Commentary
+
+The time series plots are the first check. They show whether the data is trending up, moving with a seasonal pattern, or showing unusual shocks. In Lone Star, the plot shows growth over time and stronger end-of-year demand. It also shows the 2020 disruption.
+
+The decomposition plots help separate the series into trend, seasonal movement, and leftover noise. This is useful because leadership may only see one line moving up or down, but the model needs to separate the long-term direction from the repeating seasonal pattern.
+
+The residual plots are the final check. I use them to see what the model missed. A good model should leave residuals that look mostly random. If the residuals still show a pattern, I would not be comfortable using that model without more review.
+
+## Mock Interview Q&A
+
+**Question: How do you start a forecasting problem?**  
+I start with the plot. Before I choose a model, I want to understand the shape of the data. I look for trend, seasonality, outliers, and shocks. In this project, the Lone Star data showed long-term growth and a clear quarterly pattern. The HealthLink data showed clinic-level differences and systemwide growth.
+
+**Question: What did you learn from the Lone Star forecast?**  
+Lone Star shipments were increasing over time, but the 2020 period showed a disruption. That matters because a company can have strong demand and still face short-term shocks. I would use the forecast as a baseline, but I would also keep a buffer for inventory and logistics planning.
+
+**Question: What did you learn from the HealthLink forecast?**  
+The HealthLink forecast showed why clinic-level planning matters. The systemwide forecast is useful for the total budget, but staffing has to be planned by clinic. Temple and Waco have higher visit volume than smaller clinics, so one staffing rule would not fit every location.
+
+**Question: Why compare ETS, ARIMA, regression, and seasonal naive models?**  
+I do not want to trust one model too quickly. Seasonal naive gives a simple baseline. ETS is useful for trend and seasonality. ARIMA is useful when past values and autocorrelation matter. Regression with seasonality is easy to explain to leadership. Comparing them gives me a better reason for choosing the final model.
+
+**Question: What does residual checking tell you?**  
+Residuals show what the model missed. If residuals still have a pattern, that means the model may not be capturing the full story. In a business setting, I would not just show the forecast. I would also check whether the errors look reasonable.
+
+**Question: How do you explain forecast uncertainty to leadership?**  
+I explain that the point forecast is not a promise. It is the middle estimate. The interval is the planning range. If leadership only plans around the point forecast, they may be underprepared. For staffing, inventory, and logistics, the range matters.
+
+**Question: What makes a forecast useful?**  
+A forecast is useful when it helps someone make a better decision. In this project, the forecast supports production planning, clinic staffing, budgeting, inventory, logistics, and facility planning. The model is only one part of the work. The final step is explaining what leadership should do with it.
+
+**Question: What could make the forecast wrong?**  
+The forecast could be wrong if the future does not behave like the past. COVID-type disruptions, supply chain issues, staffing shortages, capacity limits, economic changes, and changes in customer or patient behavior could all affect the forecast.
+
+**Question: Which tools would you use in practice?**  
+For this project, R worked well because the forecasting package makes ETS, ARIMA, decomposition, and diagnostics straightforward. I would still use Python when the forecasting work needs to connect with larger machine learning pipelines, dashboards, or production systems. For a time-series class project, R is the cleaner tool.
+
+# Final Conclusion
+
+Both exercises point to the same main lesson: forecasting is useful only when it supports a decision. Lone Star should use the shipment forecast for production, staffing, inventory, and logistics planning. Texas HealthLink should use the clinic-level and systemwide forecasts for staffing, budgeting, scheduling, and capacity planning.
+
+The models are not perfect, but they give leadership a better planning baseline than guessing. The safest approach is to review the forecast each period, compare the forecast to actual results, and update the plan when the data changes.
+
+# References
+
+CUNY School of Professional Studies. (2026). *DATA 624: Predictive Analytics syllabus* [Course syllabus].
+
+CUNY School of Professional Studies. (2026). *Project #1: Lone Star Appliance* [Project instructions].
+
+CUNY School of Professional Studies. (2026). *Data: Lone Star Appliance modeling data* [Dataset].
+
+CUNY School of Professional Studies. (2026). *Project #1: Texas HealthLink* [Project instructions].
+
+CUNY School of Professional Studies. (2026). *Data: HealthLink modeling data* [Dataset].
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.). OTexts.
+
+Kuhn, M., & Johnson, K. (2013). *Applied predictive modeling*. Springer.

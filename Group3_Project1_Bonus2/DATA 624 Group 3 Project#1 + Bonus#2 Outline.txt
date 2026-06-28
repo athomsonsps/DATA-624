@@ -1,46 +1,111 @@
-DATA 624 Group 3 Project#1 and Bonus#2 Final
+# DATA 624 Group 3 Project #1 and Bonus 1 and Bonus 2 
 
-Executive Summary
+## Executive Summary
 
-Exercise #1: Lone Star Appliances
-- Board-Level Summary
-- Technical Work
-- Forecasting Models
-- Model Comparison
-- Forecast Table
---Recommendation
+This project uses time series forecasting to support business planning for Lone Star Appliances and Texas HealthLink. The main goal is not just to create forecasts, but to explain how the forecasts can support real decisions.
 
-Exercise #2: Texas HealthLink
-- Board-Level Summary
-- Clinic-Level Forecasts
-- Systemwide Forecast
-- Model Comparison
--- Recommendation
+Exercise #1 focuses on Lone Star Appliances. The forecast estimates quarterly appliance shipments and supports production, staffing, inventory, logistics, and risk planning. The analysis looks at shipment growth, seasonal patterns, the 2020 disruption, model comparison, and final forecast recommendations.
 
-Bonus #2: Interview-Ready Time Series Literacy
-- Executive Summary
-- Graph Commentary
--- Mock Interview Q&A
---- Final Conclusion
---- References
+Exercise #2 focuses on Texas HealthLink. The forecast estimates monthly patient visits for five clinics and the full system. The analysis supports staffing, budgeting, scheduling, facility planning, and systemwide resource allocation.
 
+Bonus #1 compares the R forecasting workflow with a Python forecasting workflow using the same Texas HealthLink data. The Python work tests ETS, SARIMA, and regression with monthly seasonality. It uses the last 12 months as a holdout period, selects the best Python model by clinic, and produces 2024 clinic-level and systemwide forecasts.
 
-The project includes an Executive Summary that gives a short overview of the forecasting work for Lone Star Appliances and Texas HealthLink.
+Bonus #2 explains time series forecasting concepts in a clear interview-ready format. It includes an executive summary, graph commentary, and mock interview questions and answers in plain language.
 
-Exercise #1: Lone Star Appliances forecasts quarterly appliance shipments using time series models. It focuses on shipment growth, seasonality, COVID disruption, and planning needs.
+## Exercise #1: Lone Star Appliances
 
-Exercise #1 Technical Work includes R code, plots, STL decomposition, ETS, ARIMA, regression, seasonal naive modeling, model comparison, final forecasts, and residual checks.
+### Board-Level Summary
 
-Exercise #1 Recommendation gives business guidance for production, staffing, inventory, logistics, and risk planning.
+This section explains the business problem, the shipment pattern, and the main planning concern for Lone Star Appliances. The focus is on what leadership should expect and how the forecast should be used.
 
-Exercise #2: Texas HealthLink forecasts monthly patient visits for five clinics and the full system. It focuses on staffing, budgeting, scheduling, and clinic capacity.
+### Technical Work
 
-Exercise #2 Technical Work includes clinic-level forecasts, systemwide forecasts, model comparison, plots, and forecast tables.
+This section includes the R code, time series plots, STL decomposition, ACF/PACF checks, forecasting models, and residual diagnostics.
 
-Exercise #2 Recommendation explains how HealthLink should use the clinic-level and systemwide forecasts for planning.
+### Forecasting Models
 
-Bonus #2 adds interview-ready time series explanations, graph commentary, and mock Q&A in plain language.
+The models tested include seasonal naive, ETS, ARIMA, and regression with trend and seasonality.
 
-The Final Conclusion wraps up the project and connects the forecasting results back to business decisions.
+### Model Comparison
 
-The References section includes course/project sources and forecasting textbooks.
+The models are compared using accuracy measures such as RMSE, MAE, and MAPE. A holdout test is also used to check how well the models perform on unseen data.
+
+### Forecast Table
+
+The final forecast table shows the expected quarterly shipments along with forecast intervals.
+
+### Recommendation
+
+Lone Star should use the forecast as a baseline for production, staffing, inventory, and logistics planning. The company should also keep a buffer for high-demand quarters and unexpected disruptions.
+
+## Exercise #2: Texas HealthLink
+
+### Board-Level Summary
+
+This section explains the forecasting problem for Texas HealthLink and why clinic-level planning matters. The focus is on patient visits, staffing, budgeting, scheduling, and clinic capacity.
+
+### Clinic-Level Forecasts
+
+Each clinic is forecasted separately because demand is not the same across all locations. This helps leadership make better staffing and scheduling decisions.
+
+### Systemwide Forecast
+
+The systemwide forecast gives leadership a total view of expected patient volume. It supports budgeting, supply planning, and high-level resource decisions.
+
+### Model Comparison
+
+The models are compared using accuracy measures and holdout validation. This helps avoid choosing a model based only on appearance.
+
+### Recommendation
+
+Texas HealthLink should use both clinic-level forecasts and the systemwide forecast. The clinic forecasts should guide staffing and scheduling, while the systemwide forecast should guide budgeting and resource planning.
+
+## Bonus #1: Python vs. R Forecasting Comparison
+
+### Executive Summary
+
+Bonus #1 compares R and Python for the Texas HealthLink forecasting problem. The goal is to see whether Python can produce comparable forecasts and whether it adds value to the forecasting workflow.
+
+### Python Workflow
+
+The Python script uses the same HealthLink data as the R workflow. It tests ETS, SARIMA, and regression with monthly seasonality. The last 12 months are used as a holdout period.
+
+### Python Model Results
+
+The best Python model is selected separately for each clinic based on holdout accuracy. This is important because one model is not always best for every clinic.
+
+### Python Systemwide Forecast
+
+The systemwide Python forecast is created using a bottom-up method. Each clinic is forecasted first, and then the clinic forecasts are summed to create the total system forecast.
+
+### R vs. Python Comparison
+
+R is stronger for direct time series analysis, reporting, diagnostics, and classroom-style forecasting work. Python is stronger when the forecast needs to connect with automation, dashboards, machine learning, or production systems.
+
+### Recommendation
+
+For this project, R should remain the main forecasting tool because it is easier to explain and audit. Python should be used as a second tool when the forecasting workflow needs to scale or connect to other systems.
+
+## Bonus #2: Interview-Ready Time Series Literacy
+
+### Executive Summary
+
+Bonus #2 explains the main time series concepts used in the project. The focus is on explaining forecasting in a way that is clear during an interview.
+
+### Graph Commentary
+
+The graph commentary explains time series plots, decomposition, ACF/PACF, residual diagnostics, and forecast intervals in plain language.
+
+### Mock Interview Q&A
+
+The mock interview section explains how to answer common forecasting questions, including how to start a forecasting problem, why model comparison matters, how to explain uncertainty, and how to connect forecasts back to business decisions.
+
+## Final Conclusion
+
+The main lesson from this project is that forecasting is useful when it supports a decision. Lone Star Appliances can use the forecast for production, staffing, inventory, and logistics planning. Texas HealthLink can use the forecasts for clinic staffing, scheduling, budgeting, and capacity planning.
+
+The models are not perfect, but they give leadership a better planning baseline than guessing. The best approach is to use the forecasts, compare them to actual results, and update the plan when the data changes.
+
+## References
+
+The References section includes the course syllabus, project instructions, datasets, forecasting textbooks, and R/Python forecasting resources used to support the analysis.

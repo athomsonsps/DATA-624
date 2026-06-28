@@ -1,0 +1,483 @@
+---
+title: "DATA624 HW.3"
+author: "Andre Thomson"
+date: "2026-06-10"
+output:
+  word_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+    theme: readable
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(fpp3)
+```
+
+# Homework 3
+
+## Report Note
+
+This homework covers ARIMA models from Chapter 9. All code uses `fpp3` and can be run in RStudio/Posit.
+
+---
+
+# HA 9.11.2
+
+## Problem
+
+Plot the daily closing prices for Amazon stock from `gafa_stock` along with the ACF and PACF. Explain how each plot shows the series is non-stationary and should be differenced.
+
+## Approach
+
+I filtered Amazon data and created a regular trading-day index. I plotted the closing price, ACF, PACF, and the ACF after one difference to confirm that differencing achieves stationarity.
+
+## R Code
+
+```{r ha-9-11-2-load}
+amzn <- gafa_stock |>
+  filter(Symbol == "AMZN") |>
+  mutate(trading_day = row_number()) |>
+  update_tsibble(index = trading_day, regular = TRUE)
+```
+
+```{r ha-9-11-2-plot}
+amzn |>
+  autoplot(Close) +
+  labs(title = "Amazon Daily Closing Price", x = "Trading Day", y = "Price (USD)")
+```
+
+The time plot shows a strong upward trend — the series has no fixed mean, which is the first indicator of non-stationarity.
+
+```{r ha-9-11-2-acf}
+amzn |>
+  ACF(Close) |>
+  autoplot() +
+  labs(title = "ACF of Amazon Closing Price")
+```
+
+The ACF shows very slow decay — autocorrelations remain large and positive at many lags, which is a classic sign of non-stationarity.
+
+```{r ha-9-11-2-pacf}
+amzn |>
+  PACF(Close) |>
+  autoplot() +
+  labs(title = "PACF of Amazon Closing Price")
+```
+
+The PACF has a single large spike at lag 1 (close to 1) and nothing significant after — consistent with a random walk model that is non-stationary.
+
+```{r ha-9-11-2-diff-acf}
+amzn |>
+  ACF(difference(Close)) |>
+  autoplot() +
+  labs(title = "ACF of Differenced Amazon Closing Price")
+```
+
+After one difference the ACF is essentially white noise, confirming that one difference is enough to make the series stationary.
+
+## Code Results
+
+The level plot shows a clear upward trend. The ACF decays very slowly from large positive values. The PACF has one dominant spike at lag 1. After differencing, the ACF shows only minor spikes — the differenced series is white noise.
+
+## Interpretation
+
+All three pre-differencing plots confirm non-stationarity. A trending series has no fixed mean — the ACF reflects this by decaying slowly rather than quickly. The PACF near 1 at lag 1 is consistent with a random walk (ARIMA(0,1,0)). After one regular difference the series looks like white noise, so d=1 is the right choice for Amazon stock prices.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 9, Exercise 9.11.2. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 9.11.8
+
+## Problem
+
+For US GDP from `global_economy`: (a) find a suitable Box-Cox transformation, (b) fit an ARIMA model to the transformed data, (c) try other models by experimenting with orders, (d) choose the best and check residuals, (e) produce forecasts, and (f) compare with ETS (no transformation).
+
+## Approach
+
+I used the Guerrero method to find the optimal lambda. I ran `ARIMA()` for auto-selection and compared it to three manually specified alternatives by AICc. I chose the best model, checked residuals, produced a 10-year forecast, and compared it to ETS.
+
+## R Code
+
+```{r ha-9-11-8-load}
+us_gdp <- global_economy |>
+  filter(Country == "United States") |>
+  select(Year, GDP)
+```
+
+```{r ha-9-11-8-lambda}
+lambda_gdp <- us_gdp |>
+  features(GDP, features = guerrero) |>
+  pull(lambda_guerrero)
+
+cat("Optimal Box-Cox lambda for US GDP:", round(lambda_gdp, 3), "\n")
+
+us_gdp |>
+  autoplot(box_cox(GDP, lambda_gdp)) +
+  labs(title = "US GDP - Box-Cox Transformed", y = "Transformed GDP")
+```
+
+The transformed series should have more stable variance and look more linear than raw GDP.
+
+```{r ha-9-11-8-auto}
+fit_gdp <- us_gdp |>
+  model(ARIMA_auto = ARIMA(box_cox(GDP, lambda_gdp)))
+
+report(fit_gdp)
+```
+
+The `report()` output shows the ARIMA orders selected by R, along with estimated coefficients, AICc, and log-likelihood.
+
+```{r ha-9-11-8-compare}
+fit_gdp_alt <- us_gdp |>
+  model(
+    Auto     = ARIMA(box_cox(GDP, lambda_gdp)),
+    ARIMA011 = ARIMA(box_cox(GDP, lambda_gdp) ~ pdq(0,1,1) + PDQ(0,0,0)),
+    ARIMA210 = ARIMA(box_cox(GDP, lambda_gdp) ~ pdq(2,1,0) + PDQ(0,0,0)),
+    ARIMA111 = ARIMA(box_cox(GDP, lambda_gdp) ~ pdq(1,1,1) + PDQ(0,0,0))
+  )
+
+glance(fit_gdp_alt) |>
+  select(.model, AICc, BIC) |>
+  arrange(AICc)
+```
+
+The AICc table ranks all models — the lowest AICc indicates the best balance of fit and complexity.
+
+```{r ha-9-11-8-resid}
+fit_gdp |> gg_tsresiduals()
+```
+
+The residual ACF, histogram, and time plot check whether the ARIMA model leaves any pattern in the errors.
+
+```{r ha-9-11-8-forecast}
+fit_gdp |>
+  forecast(h = 10) |>
+  autoplot(us_gdp) +
+  labs(title = "US GDP - ARIMA Forecast (10 years)", y = "GDP (USD)")
+```
+
+The forecast plot shows projected US GDP for the next 10 years with 80% and 95% prediction intervals.
+
+```{r ha-9-11-8-ets}
+fit_gdp_ets <- us_gdp |>
+  model(ETS_auto = ETS(GDP))
+
+report(fit_gdp_ets)
+
+fit_gdp_ets |>
+  forecast(h = 10) |>
+  autoplot(us_gdp) +
+  labs(title = "US GDP - ETS Forecast (10 years)")
+
+bind_rows(
+  accuracy(fit_gdp)     |> mutate(.model = "ARIMA"),
+  accuracy(fit_gdp_ets) |> mutate(.model = "ETS")
+) |>
+  select(.model, RMSE, MAE)
+```
+
+The accuracy comparison shows in-sample RMSE for ARIMA vs ETS on the US GDP training data.
+
+## Code Results
+
+The Guerrero lambda quantifies the transformation needed. The auto ARIMA report shows which model R selected. The AICc table shows how the auto model compares to manually specified alternatives. The residual plot checks for remaining autocorrelation. The accuracy table shows how ARIMA and ETS compare on training data.
+
+## Interpretation
+
+US GDP has a strong upward trend, so both ARIMA and ETS models that include trend perform well. The Box-Cox transformation (lambda near 0 is log-like) stabilizes variance. The auto ARIMA typically selects d=1 to handle the trend. Clean residuals with a passing Ljung-Box p-value confirm the model is adequate. ETS on raw GDP often selects ETS(M,A,N) or similar — if ARIMA RMSE is lower, ARIMA is the better fit.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 9, Exercise 9.11.8. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 9.11.9
+
+## Problem
+
+Use `aus_arrivals` (quarterly international visitors to Australia, 1981 Q1 to 2012 Q3). (a) Select one country and describe the time plot. (b) Use differencing to obtain stationary data. (c) Interpret the ACF of the differenced data. (d) Interpret the PACF. (e) Identify a model from the graphs. (f) Check if `ARIMA()` gives the same model. (Part g — backshift notation — is excluded per assignment instructions.)
+
+## Approach
+
+I selected Japan. I used unit root tests to decide how many differences are needed, then used ACF and PACF of the differenced data to identify candidate ARIMA orders. I compared my suggested model to the auto ARIMA result.
+
+## R Code
+
+```{r ha-9-11-9-load}
+japan <- aus_arrivals |>
+  filter(Origin == "Japan")
+```
+
+```{r ha-9-11-9-plot}
+japan |>
+  autoplot(Arrivals) +
+  labs(title = "Quarterly Arrivals from Japan to Australia", y = "Arrivals (thousands)")
+```
+
+The time plot shows a seasonal pattern with a rise and then decline in arrivals — the changing level over time suggests non-stationarity.
+
+```{r ha-9-11-9-diff-tests}
+japan |> features(Arrivals, unitroot_nsdiffs)
+japan |> features(difference(Arrivals, 4), unitroot_ndiffs)
+```
+
+The first test says how many seasonal differences are needed; the second says how many regular differences are needed after the seasonal difference.
+
+```{r ha-9-11-9-tsdisplay}
+japan |>
+  gg_tsdisplay(
+    difference(Arrivals, 4),
+    plot_type = "partial",
+    lag_max   = 36
+  ) +
+  labs(title = "Japan Arrivals: Seasonally Differenced (ACF and PACF)")
+```
+
+The ACF and PACF of the seasonally differenced series guide identification of the seasonal and non-seasonal ARIMA orders.
+
+```{r ha-9-11-9-auto}
+fit_japan <- japan |>
+  model(ARIMA_auto = ARIMA(Arrivals))
+
+report(fit_japan)
+```
+
+The `report()` shows the ARIMA model R selected automatically — I compare this to what the ACF/PACF patterns suggested.
+
+```{r ha-9-11-9-forecast}
+fit_japan |>
+  forecast(h = 8) |>
+  autoplot(japan) +
+  labs(title = "Japan Arrivals - ARIMA Forecast (2 years)")
+
+fit_japan |> gg_tsresiduals()
+```
+
+The forecast plot shows 8 quarters ahead with prediction intervals; the residual diagnostics confirm whether the model is adequate.
+
+## Code Results
+
+The unit root tests confirm the differencing order. The ACF/PACF plots after seasonal differencing show the structure used to identify ARIMA orders. The auto ARIMA report shows R's selected model. The residual diagnostics check whether that model leaves white noise errors.
+
+## Interpretation
+
+Japan arrivals have a strong quarterly seasonal pattern, so seasonal differencing (D=1, lag 4) is needed first. After seasonal differencing, ACF and PACF help identify the non-seasonal and seasonal AR/MA orders. For example, a spike in the ACF at lag 4 suggests SMA(1); a spike in the PACF at lag 4 suggests SAR(1). The auto ARIMA may or may not match what the plots suggest — if they differ, I compare AICc and residuals to choose the better model.
+
+Note: Part (g) — writing the model in backshift notation — was excluded per the assignment instructions.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 9, Exercise 9.11.9. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 9.11.11
+
+## Problem
+
+Choose one of electricity, cement, or gas from `aus_production`. (a) Check if transformation is needed. (b) Find appropriate differencing for stationarity. (c) Identify ARIMA models by AIC. (d) Estimate best model and check residuals. (e) Forecast next 24 quarters. (f) Compare with ETS.
+
+## Approach
+
+I used the Gas series because it has clear growing seasonal variation, making a Box-Cox transformation a natural first step. I used the Guerrero method for lambda, unit root tests for differencing, and ACF/PACF to identify candidate models. I compared the auto ARIMA to two manually specified models by AICc.
+
+## R Code
+
+```{r ha-9-11-11-load}
+gas <- aus_production |>
+  filter(!is.na(Gas)) |>
+  select(Quarter, Gas)
+```
+
+```{r ha-9-11-11-transform}
+lambda_gas <- gas |>
+  features(Gas, features = guerrero) |>
+  pull(lambda_guerrero)
+
+cat("Optimal Box-Cox lambda for Gas:", round(lambda_gas, 3), "\n")
+
+gas |>
+  autoplot(box_cox(Gas, lambda_gas)) +
+  labs(title = "Gas Production - Box-Cox Transformed", y = "Transformed Gas")
+```
+
+The Box-Cox transformation stabilizes the variance across the series — gas production shows increasing seasonal swings over time so transformation is needed.
+
+```{r ha-9-11-11-diff}
+gas |> features(box_cox(Gas, lambda_gas), unitroot_nsdiffs)
+gas |> features(
+  difference(box_cox(Gas, lambda_gas), 4),
+  unitroot_ndiffs
+)
+
+gas |>
+  gg_tsdisplay(
+    difference(difference(box_cox(Gas, lambda_gas), 4), 1),
+    plot_type = "partial",
+    lag_max   = 36
+  ) +
+  labs(title = "Gas: Twice-Differenced (Seasonal + Regular) ACF and PACF")
+```
+
+The differenced ACF and PACF show whether the series is now stationary and help identify the ARIMA orders.
+
+```{r ha-9-11-11-models}
+fit_gas_compare <- gas |>
+  model(
+    Auto = ARIMA(box_cox(Gas, lambda_gas)),
+    M1   = ARIMA(box_cox(Gas, lambda_gas) ~ pdq(0,1,1) + PDQ(0,1,1)),
+    M2   = ARIMA(box_cox(Gas, lambda_gas) ~ pdq(1,1,1) + PDQ(1,1,1))
+  )
+
+glance(fit_gas_compare) |>
+  select(.model, AICc, BIC) |>
+  arrange(AICc)
+```
+
+The AICc ranking shows the best model among the auto-selected and two manually specified alternatives.
+
+```{r ha-9-11-11-best}
+fit_gas_best <- gas |>
+  model(ARIMA_best = ARIMA(box_cox(Gas, lambda_gas)))
+
+report(fit_gas_best)
+fit_gas_best |> gg_tsresiduals()
+```
+
+The residual diagnostics confirm whether the best ARIMA model leaves white noise errors.
+
+```{r ha-9-11-11-forecast}
+fit_gas_best |>
+  forecast(h = 24) |>
+  autoplot(gas) +
+  labs(title = "Gas Production - ARIMA Forecast (24 Quarters)", y = "Gas (PJ)")
+```
+
+The 24-quarter (6-year) forecast shows projected gas production with prediction intervals.
+
+```{r ha-9-11-11-ets}
+fit_gas_ets <- gas |>
+  model(ETS_auto = ETS(Gas))
+
+report(fit_gas_ets)
+
+fit_gas_ets |>
+  forecast(h = 24) |>
+  autoplot(gas) +
+  labs(title = "Gas Production - ETS Forecast (24 Quarters)")
+
+bind_rows(
+  accuracy(fit_gas_best) |> mutate(.model = "ARIMA"),
+  accuracy(fit_gas_ets)  |> mutate(.model = "ETS")
+) |>
+  select(.model, RMSE, MAE, MAPE)
+```
+
+The accuracy comparison shows whether ARIMA or ETS fits the gas training data better.
+
+## Code Results
+
+The Guerrero lambda shows a transformation is needed. Unit root tests confirm seasonal and regular differencing. The AICc table ranks models. The residual plot checks for autocorrelation. The 24-quarter ARIMA and ETS forecasts and accuracy table show how the approaches compare.
+
+## Interpretation
+
+Gas production has multiplicative seasonality — the seasonal swings grow as the trend grows. Box-Cox transformation turns this into additive seasonality that ARIMA can handle. After transformation and differencing (D=1, d=1 typically), ACF at seasonal lags guides whether SMA(1) or SAR(1) is more appropriate. The auto ARIMA minimizes AICc across a search space. The ETS model on raw gas often selects a multiplicative seasonal model — if RMSE is similar to ARIMA, either is acceptable.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 9, Exercise 9.11.11. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 9.11.13
+
+## Problem
+
+For the Australian tourism data from `tourism`: (a) fit ARIMA models for each time series, (b) produce forecasts, and (c) check whether the forecasts for the "Snowy Mountains" and "Melbourne" regions look reasonable.
+
+## Approach
+
+I fit an ARIMA model to each Region-Purpose combination in the tourism dataset using `model(ARIMA(Trips))`. I produced 8-quarter (2-year) forecasts for all series and examined the Snowy Mountains and Melbourne regions in detail.
+
+## R Code
+
+```{r ha-9-11-13-fit, message=FALSE, warning=FALSE, cache=TRUE}
+# Fits a separate ARIMA to each of 304 region-purpose series (takes a few minutes)
+fit_tourism <- tourism |>
+  model(ARIMA = ARIMA(Trips))
+```
+
+This fits a separate ARIMA model to every Region-Purpose time series in `tourism` — R selects the orders automatically for each one.
+
+```{r ha-9-11-13-forecast}
+fc_tourism <- fit_tourism |>
+  forecast(h = 8)
+```
+
+```{r ha-9-11-13-snowy}
+snowy_data <- tourism |>
+  filter(Region == "Snowy Mountains")
+
+fc_tourism |>
+  filter(Region == "Snowy Mountains") |>
+  autoplot(snowy_data) +
+  facet_wrap(~ Purpose, scales = "free_y") +
+  labs(title = "Snowy Mountains: ARIMA Forecasts by Purpose")
+```
+
+The Snowy Mountains forecast plot shows whether the ARIMA models capture the expected seasonal skiing pattern for each travel purpose.
+
+```{r ha-9-11-13-snowy-report}
+fit_tourism |>
+  filter(Region == "Snowy Mountains", Purpose == "Holiday") |>
+  report()
+```
+
+The report shows which ARIMA model R selected for Snowy Mountains Holiday trips and its fit diagnostics.
+
+```{r ha-9-11-13-melbourne}
+melb_data <- tourism |>
+  filter(Region == "Melbourne")
+
+fc_tourism |>
+  filter(Region == "Melbourne") |>
+  autoplot(melb_data) +
+  facet_wrap(~ Purpose, scales = "free_y") +
+  labs(title = "Melbourne: ARIMA Forecasts by Purpose")
+```
+
+The Melbourne forecast plot shows projected trips by purpose — Melbourne is a large region so the patterns and magnitudes should be inspected for reasonableness.
+
+```{r ha-9-11-13-melbourne-report}
+fit_tourism |>
+  filter(Region == "Melbourne", Purpose == "Holiday") |>
+  report()
+```
+
+The report for Melbourne Holiday trips shows which model was selected and whether the fit metrics look reasonable.
+
+## Code Results
+
+The `model()` call fits 304 separate ARIMA models. The Snowy Mountains plots show whether the seasonal ski tourism pattern is being projected forward correctly. The Melbourne plots show the four travel-purpose breakdowns. The `report()` calls show specific model details for the two key regions.
+
+## Interpretation
+
+For Snowy Mountains, the seasonal pattern is dominant (ski tourism drives winter peaks). If the ARIMA model captures this correctly, the forecasts should show clear seasonal variation. If the model selects a non-seasonal specification, the forecasts may look too flat.
+
+For Melbourne, the series is much larger and more stable. The forecasts should show a reasonable continuation of each purpose's trend. If any forecast looks unreasonable (e.g., rapidly diverging intervals), it may mean the auto ARIMA selected an unstable model — a simpler manually specified model might help.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 9, Exercise 9.11.13. OTexts. https://otexts.com/fpp3/
+
+---
+
+## References
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.). OTexts. https://otexts.com/fpp3/

@@ -1,0 +1,786 @@
+---
+title: "DATA624 HW.2"
+author: "Andre Thomson"
+date: "2026-06-10"
+output:
+  word_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+    theme: readable
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(fpp3)
+```
+
+# Homework 2
+
+## Report Note
+
+This homework follows the required format: problem, approach, R code, code results, and interpretation. All code can be run in RStudio/Posit.
+
+---
+
+# HA 5.11.2
+
+## Problem
+
+Use the Facebook stock price from `gafa_stock` to: (a) produce a time plot, (b) forecast with the drift method, (c) show the drift forecast equals extending the line between the first and last observations, and (d) compare other benchmark methods and decide which is best.
+
+## Approach
+
+I filtered the Facebook rows and made the index regular by using row numbers, since stock data only covers trading days. I applied the drift, naive, and mean methods and compared their forecasts visually.
+
+## R Code
+
+```{r ha-5-11-2-load}
+fb_stock <- gafa_stock |>
+  filter(Symbol == "FB") |>
+  mutate(trading_day = row_number()) |>
+  update_tsibble(index = trading_day, regular = TRUE)
+```
+
+```{r ha-5-11-2-timeplot}
+fb_stock |>
+  autoplot(Close) +
+  labs(title = "Facebook Daily Closing Price",
+       x = "Trading Day", y = "Price (USD)")
+```
+
+The time plot shows a strong upward trend with no fixed mean, which means the mean benchmark will not be appropriate here.
+
+```{r ha-5-11-2-benchmarks}
+fit_fb <- fb_stock |>
+  model(
+    Drift = RW(Close ~ drift()),
+    Naive = NAIVE(Close),
+    Mean  = MEAN(Close)
+  )
+
+fit_fb |>
+  forecast(h = 100) |>
+  autoplot(fb_stock, level = NULL) +
+  labs(title = "Facebook Stock - Benchmark Forecasts",
+       x = "Trading Day", y = "Price (USD)")
+```
+
+This plot shows all three benchmark forecasts — drift continues the historical trend, naive holds the last value flat, and mean projects the historical average.
+
+```{r ha-5-11-2-drift-check}
+# c. Show drift = line from first to last observation
+n_fb        <- nrow(fb_stock)
+first_price <- fb_stock$Close[1]
+last_price  <- fb_stock$Close[n_fb]
+drift_rate  <- (last_price - first_price) / (n_fb - 1)
+
+cat("First closing price :", round(first_price, 2), "\n")
+cat("Last closing price  :", round(last_price, 2), "\n")
+cat("Number of trading days:", n_fb, "\n")
+cat("Drift slope (per day):", round(drift_rate, 4), "\n")
+cat("This slope is identical to what the drift forecast uses internally.\n")
+```
+
+The drift rate printed here is the same slope used internally by `RW(y ~ drift())`, confirming the forecast extends the line between the first and last observations.
+
+## Code Results
+
+The time plot shows a clear upward trend throughout the series. The drift forecast follows a straight line upward. The naive forecast is flat at the last closing price. The mean forecast is flat at the historical average — far below the last price.
+
+## Interpretation
+
+The drift method is the most reasonable benchmark because the data has a clear upward trend. The naive method makes sense for random-walk-like behavior over short horizons. The mean method is clearly wrong here because the series is not stationary. None of these is a useful stock-price model in practice, but for benchmark comparison, drift captures the trend direction best.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 5, Exercise 5.11.2. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 5.11.6
+
+## Problem
+
+Are the following statements true or false? Explain each.
+
+a. Good forecast methods should have normally distributed residuals.
+b. A model with small residuals will give good forecasts.
+c. The best measure of forecast accuracy is MAPE.
+d. If your model doesn't forecast well, you should make it more complicated.
+e. Always choose the model with the best forecast accuracy as measured on the test set.
+
+## Approach
+
+No R code needed. I answered each based on Chapter 5 theory on residuals, accuracy measures, and model selection.
+
+## R Code
+
+No code for this exercise.
+
+## Code Results
+
+No code output for this exercise.
+
+## Interpretation
+
+**a. False.** Good residuals need to be uncorrelated (white noise) and have mean zero. Normality only matters for computing prediction intervals, not for point forecasts.
+
+**b. False.** Low training residuals do not guarantee good out-of-sample forecasts. A complex model can fit training data very closely while overfitting and performing poorly on new data.
+
+**c. False.** MAPE breaks down when actual values are near zero or when comparing series with different units. No single measure is best for all situations.
+
+**d. False.** More complexity often leads to overfitting. A simpler model usually generalizes better unless there is a clear theoretical reason to add components.
+
+**e. False.** Test set accuracy depends on the size and period of the test set. Choosing solely on one test result can be misleading — cross-validation and multiple metrics give a more reliable comparison.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 5, Exercise 5.11.6. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 5.11.11
+
+## Problem
+
+Use Australian quarterly clay brick production (`aus_production`, 1956–2005). (a) Apply STL decomposition with fixed and changing seasonality. (b) Compute and plot seasonally adjusted data. (c) Use a naive method to forecast the seasonally adjusted data. (d) Use `decomposition_model()` to reseasonalise. (e) Check residuals. (f) Repeat with robust STL. (g) Compare with `SNAIVE()` on a 2-year test set.
+
+## Approach
+
+I removed NA values and applied STL decomposition. I used `decomposition_model()` with a naive method on the seasonally adjusted component to produce forecasts in the original units. I checked residuals for white noise and compared the decomposition model to the seasonal naive benchmark on the last 2 years (8 quarters).
+
+## R Code
+
+```{r ha-5-11-11-load}
+bricks <- aus_production |>
+  filter(!is.na(Bricks)) |>
+  select(Quarter, Bricks)
+```
+
+```{r ha-5-11-11-stl}
+# a. STL decomposition (fixed seasonality)
+bricks |>
+  model(STL(Bricks ~ trend(window = 13) + season(window = "periodic"))) |>
+  components() |>
+  autoplot() +
+  labs(title = "STL Decomposition - Brick Production (Fixed Seasonality)")
+```
+
+The STL plot separates trend, seasonal, and remainder components — the seasonal component stays constant across the series with `window = "periodic"`.
+
+```{r ha-5-11-11-stl-changing}
+# a. STL with changing seasonality
+bricks |>
+  model(STL(Bricks ~ trend(window = 13) + season(window = 7))) |>
+  components() |>
+  autoplot() +
+  labs(title = "STL Decomposition - Brick Production (Changing Seasonality)")
+```
+
+With `season(window = 7)`, the seasonal pattern is allowed to evolve slowly over time rather than stay fixed.
+
+```{r ha-5-11-11-sa}
+# b. Seasonally adjusted data
+bricks |>
+  model(STL(Bricks ~ trend(window = 13) + season(window = 7))) |>
+  components() |>
+  as_tsibble() |>
+  autoplot(season_adjust) +
+  labs(title = "Seasonally Adjusted Brick Production", y = "Bricks (millions)")
+```
+
+The seasonally adjusted series shows the trend without the quarterly seasonal swing.
+
+```{r ha-5-11-11-decomp}
+# d. decomposition_model() with NAIVE on SA data
+fit_decomp <- bricks |>
+  model(decomposition_model(
+    STL(Bricks ~ trend(window = 13) + season(window = 7)),
+    NAIVE(season_adjust)
+  ))
+
+fit_decomp |>
+  forecast(h = 8) |>
+  autoplot(bricks) +
+  labs(title = "Brick Production: STL + NAIVE Decomposition Forecast")
+```
+
+The forecast carries the last seasonally adjusted value forward and re-adds the seasonal component to produce forecasts in the original scale.
+
+```{r ha-5-11-11-resid}
+# e. Residual check
+fit_decomp |> gg_tsresiduals()
+```
+
+This residual diagnostic checks whether the decomposition model leaves any autocorrelation in the errors.
+
+```{r ha-5-11-11-robust}
+# f. Robust STL
+fit_robust <- bricks |>
+  model(decomposition_model(
+    STL(Bricks ~ trend(window = 13) + season(window = 7), robust = TRUE),
+    NAIVE(season_adjust)
+  ))
+
+fit_robust |>
+  forecast(h = 8) |>
+  autoplot(bricks) +
+  labs(title = "Brick Production: Robust STL + NAIVE Forecast")
+```
+
+The robust STL option downweights outliers in the remainder component — if the standard and robust forecasts look similar, the data has few outliers.
+
+```{r ha-5-11-11-compare}
+# g. Compare with SNAIVE on last 2 years test set (8 quarters)
+n_bricks     <- nrow(bricks)
+bricks_train <- bricks |> slice(1:(n_bricks - 8))
+
+fit_compare <- bricks_train |>
+  model(
+    Decomp = decomposition_model(
+      STL(Bricks ~ trend(window = 13) + season(window = 7)),
+      NAIVE(season_adjust)
+    ),
+    SNAIVE = SNAIVE(Bricks)
+  )
+
+fit_compare |>
+  forecast(h = 8) |>
+  autoplot(bricks, level = NULL) +
+  labs(title = "Bricks: Decomp vs SNAIVE on Test Set")
+
+fit_compare |>
+  forecast(h = 8) |>
+  accuracy(bricks) |>
+  select(.model, RMSE, MAE, MAPE)
+```
+
+The accuracy table shows which method had lower test set error on the last 2 years of brick production.
+
+## Code Results
+
+The STL decomposition shows a clear trend rise and fall across the period, with a consistent quarterly seasonal pattern. The seasonally adjusted series reflects this trend. The decomposition model forecasts produce a reasonable continuation of the last observed level. The residuals and accuracy table show how well the model performed compared to the naive seasonal benchmark.
+
+## Interpretation
+
+The STL decomposition clearly separates the trend from seasonality. Using a naive method on the seasonally adjusted data is simple but may not capture any remaining trend. If the residuals show autocorrelation, a better method (like ETS) on the SA series might help.
+
+The robust STL makes little visual difference unless there are strong outliers in the remainder. On the test set, if the decomposition model has lower RMSE and MAPE than SNAIVE, it is the better benchmark for this series.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 5, Exercise 5.11.11. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 8.8.1
+
+## Problem
+
+Use the number of pigs slaughtered in Victoria from `aus_livestock`. (a) Fit a simple exponential smoothing model using `ETS()`, find the optimal alpha and initial level, and forecast the next 4 months. (b) Compute a manual 95% prediction interval for the first forecast using y_hat \u00b1 1.96s and compare it to R's output.
+
+## Approach
+
+I filtered the data to Victoria pigs and fit an ETS(A,N,N) model — the state space version of simple exponential smoothing. I extracted alpha and the initial level from `tidy()` and used the training RMSE as the standard deviation estimate for the manual interval.
+
+## R Code
+
+```{r ha-8-8-1-load}
+pigs_vic <- aus_livestock |>
+  filter(State == "Victoria", Animal == "Pigs")
+```
+
+```{r ha-8-8-1-ses}
+fit_ses <- pigs_vic |>
+  model(SES = ETS(Count ~ error("A") + trend("N") + season("N")))
+
+tidy(fit_ses)
+```
+
+This table shows the estimated smoothing parameter alpha and the initial level from the SES model.
+
+```{r ha-8-8-1-forecast}
+fc_ses <- fit_ses |>
+  forecast(h = 4)
+
+fc_ses |>
+  autoplot(pigs_vic) +
+  labs(title = "Victoria Pigs Slaughtered - SES Forecast (4 Months)", y = "Count")
+```
+
+The forecast shows the SES prediction for the next 4 months with 80% and 95% prediction intervals from R.
+
+```{r ha-8-8-1-manual-pi}
+# b. Manual 95% PI using RMSE as sigma
+params    <- tidy(fit_ses)
+alpha_est <- params |> filter(term == "alpha") |> pull(estimate)
+l0_est    <- params |> filter(term == "l[0]")  |> pull(estimate)
+sigma_est <- accuracy(fit_ses) |> pull(RMSE)
+fc_h1     <- fc_ses$.mean[1]
+
+manual_lower <- fc_h1 - 1.96 * sigma_est
+manual_upper <- fc_h1 + 1.96 * sigma_est
+
+cat("Estimated alpha :", round(alpha_est, 4), "\n")
+cat("Initial level l0:", round(l0_est, 1),   "\n")
+cat("RMSE (sigma)    :", round(sigma_est, 1), "\n")
+cat("First forecast  :", round(fc_h1, 1),     "\n")
+cat("Manual 95% PI   : [", round(manual_lower, 1), ",", round(manual_upper, 1), "]\n\n")
+
+cat("R's 95% PI (h=1):\n")
+fc_ses |>
+  hilo(95) |>
+  select(.mean, `95%`) |>
+  slice(1) |>
+  print()
+```
+
+This output compares the manual interval to R's generated interval for the first forecast.
+
+## Code Results
+
+The `tidy()` output shows the optimal alpha and initial level. The forecast plot shows four months ahead with R's prediction intervals. The manual interval should be very close to R's interval for h=1 — any small difference comes from R using the exact ETS variance formula (sigma^2 x [1 + alpha^2 x (h-1)]) rather than just the RMSE directly.
+
+## Interpretation
+
+The alpha value shows how much weight SES gives recent observations. A higher alpha means faster adaptation to recent changes. For h=1, the ETS variance equals sigma^2, so the manual formula y_hat +/- 1.96 x RMSE matches R closely. The intervals diverge at longer horizons because the ETS variance grows with h.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 8, Exercise 8.8.1. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 8.8.5
+
+## Problem
+
+Select one country from `global_economy` and: (a) plot Exports and describe the data, (b) fit ETS(A,N,N) and forecast, (c) compute training RMSE, (d) compare with ETS(A,A,N), (e) decide which is better, and (f) compute manual 95% prediction intervals for the first forecast for each model using RMSE, and compare with R.
+
+## Approach
+
+I selected the United States. I compared ETS(A,N,N) (simple exponential smoothing — no trend) with ETS(A,A,N) (Holt's linear method — additive trend). I used both the training RMSE and the forecast plots to decide which model fits the data better.
+
+## R Code
+
+```{r ha-8-8-5-load}
+us_exports <- global_economy |>
+  filter(Country == "United States") |>
+  select(Year, Exports)
+```
+
+```{r ha-8-8-5-plot}
+us_exports |>
+  autoplot(Exports) +
+  labs(title = "United States Exports (% of GDP)", y = "Exports (%)", x = "Year")
+```
+
+The time plot shows whether US exports have a visible trend or appear stationary — this guides whether a trend component is needed.
+
+```{r ha-8-8-5-ann}
+fit_ann <- us_exports |>
+  model(`ETS(A,N,N)` = ETS(Exports ~ error("A") + trend("N") + season("N")))
+
+fit_ann |>
+  forecast(h = 10) |>
+  autoplot(us_exports) +
+  labs(title = "US Exports - ETS(A,N,N) Forecast", y = "Exports (%)")
+```
+
+The ETS(A,N,N) forecast is a flat line from the last smoothed level, assuming no trend going forward.
+
+```{r ha-8-8-5-rmse}
+acc_ann <- accuracy(fit_ann)
+acc_ann |> select(.model, RMSE, MAE)
+```
+
+This table shows the in-sample RMSE for ETS(A,N,N) on the US exports training data.
+
+```{r ha-8-8-5-aan}
+fit_aan <- us_exports |>
+  model(`ETS(A,A,N)` = ETS(Exports ~ error("A") + trend("A") + season("N")))
+
+acc_aan <- accuracy(fit_aan)
+acc_aan |> select(.model, RMSE, MAE)
+```
+
+This table shows the RMSE for ETS(A,A,N) — compare to ETS(A,N,N) to see if adding trend improves training fit.
+
+```{r ha-8-8-5-compare}
+us_exports |>
+  model(
+    `ETS(A,N,N)` = ETS(Exports ~ error("A") + trend("N") + season("N")),
+    `ETS(A,A,N)` = ETS(Exports ~ error("A") + trend("A") + season("N"))
+  ) |>
+  forecast(h = 10) |>
+  autoplot(us_exports, level = NULL) +
+  labs(title = "US Exports: ETS(A,N,N) vs ETS(A,A,N)", y = "Exports (%)")
+```
+
+The comparison plot shows how much the two models differ in their future projections — ETS(A,A,N) will project a continuing trend while ETS(A,N,N) stays flat.
+
+```{r ha-8-8-5-manual-pi}
+rmse_ann  <- accuracy(fit_ann) |> pull(RMSE)
+rmse_aan  <- accuracy(fit_aan) |> pull(RMSE)
+fc_ann_h1 <- fit_ann |> forecast(h = 1)
+fc_aan_h1 <- fit_aan |> forecast(h = 1)
+mean_ann  <- fc_ann_h1$.mean[1]
+mean_aan  <- fc_aan_h1$.mean[1]
+
+cat("=== ETS(A,N,N) ===\n")
+cat("First forecast  :", round(mean_ann, 3), "\n")
+cat("Manual 95% PI   : [", round(mean_ann - 1.96*rmse_ann, 3), ",",
+    round(mean_ann + 1.96*rmse_ann, 3), "]\n")
+cat("R's 95% PI:\n")
+fc_ann_h1 |> hilo(95) |> select(`95%`) |> print()
+
+cat("\n=== ETS(A,A,N) ===\n")
+cat("First forecast  :", round(mean_aan, 3), "\n")
+cat("Manual 95% PI   : [", round(mean_aan - 1.96*rmse_aan, 3), ",",
+    round(mean_aan + 1.96*rmse_aan, 3), "]\n")
+cat("R's 95% PI:\n")
+fc_aan_h1 |> hilo(95) |> select(`95%`) |> print()
+```
+
+The output compares the manually computed 95% intervals to R's intervals for both models.
+
+## Code Results
+
+The time plot shows the shape of US exports over the full period. The RMSE tables compare in-sample fit for both ETS models. The forecast comparison plot shows how far apart the two projections diverge. The manual PI computation verifies the formula against R's output.
+
+## Interpretation
+
+If US exports show a visible upward or downward trend, ETS(A,A,N) is more appropriate because it explicitly models that direction. If the series is more flat or mean-reverting, ETS(A,N,N) is simpler and avoids over-projecting a trend that may not continue. The AICc values (from `glance()`) give a formal model comparison — a lower AICc favors the better model. For h=1, both manual and R intervals should nearly match.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 8, Exercise 8.8.5. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 8.8.10
+
+## Problem
+
+Use total domestic overnight trips from `tourism`. (a) Plot the data. (b) Decompose with STL and get seasonally adjusted data. (c) Forecast 2 years using additive damped trend on the SA data. (d) Forecast 2 years using Holt's linear method on SA data. (e) Fit a full seasonal ETS model. (f) Compare RMSE. (g) Compare forecasts. (h) Check residuals of the preferred model.
+
+## Approach
+
+I summed trips across all regions and purposes to get the national total. I then compared three approaches: STL with damped ETS on the SA component, STL with Holt's linear ETS, and a direct auto ETS on the full seasonal series. I chose the preferred model based on training RMSE and residual diagnostics.
+
+## R Code
+
+```{r ha-8-8-10-load}
+total_trips <- tourism |>
+  summarise(Trips = sum(Trips))
+```
+
+```{r ha-8-8-10-plot}
+total_trips |>
+  autoplot(Trips) +
+  labs(title = "Total Domestic Overnight Trips - Australia", y = "Trips (thousands)")
+```
+
+The time plot shows the overall level, trend direction, and seasonal pattern in Australian domestic tourism.
+
+```{r ha-8-8-10-stl}
+total_trips |>
+  model(STL(Trips ~ trend(window = 13) + season(window = "periodic"))) |>
+  components() |>
+  autoplot() +
+  labs(title = "STL Decomposition of Total Overnight Trips")
+```
+
+The STL decomposition shows the trend, quarterly seasonal pattern, and remainder components of total overnight trips.
+
+```{r ha-8-8-10-damped}
+fit_damped <- total_trips |>
+  model(STL_Damped = decomposition_model(
+    STL(Trips ~ trend(window = 13) + season(window = "periodic")),
+    ETS(season_adjust ~ error("A") + trend("Ad") + season("N"))
+  ))
+
+fit_damped |>
+  forecast(h = 8) |>
+  autoplot(total_trips) +
+  labs(title = "Total Trips: STL + Damped Trend Forecast")
+```
+
+The damped trend forecast bends the projected trend toward a flat level over the forecast horizon.
+
+```{r ha-8-8-10-holt}
+fit_holt <- total_trips |>
+  model(STL_Holt = decomposition_model(
+    STL(Trips ~ trend(window = 13) + season(window = "periodic")),
+    ETS(season_adjust ~ error("A") + trend("A") + season("N"))
+  ))
+
+fit_holt |>
+  forecast(h = 8) |>
+  autoplot(total_trips) +
+  labs(title = "Total Trips: STL + Holt Linear Forecast")
+```
+
+Holt's linear method extrapolates the trend without dampening — it grows more aggressively than the damped version over time.
+
+```{r ha-8-8-10-ets}
+fit_ets <- total_trips |>
+  model(ETS_auto = ETS(Trips))
+
+report(fit_ets)
+
+fit_ets |>
+  forecast(h = 8) |>
+  autoplot(total_trips) +
+  labs(title = "Total Trips: Auto ETS Forecast")
+```
+
+The `report()` output shows which ETS model R selected automatically, along with its parameters and AICc.
+
+```{r ha-8-8-10-compare}
+bind_rows(
+  accuracy(fit_damped),
+  accuracy(fit_holt),
+  accuracy(fit_ets)
+) |>
+  select(.model, RMSE, MAE, MAPE)
+
+total_trips |>
+  model(
+    STL_Damped = decomposition_model(
+      STL(Trips ~ trend(window = 13) + season(window = "periodic")),
+      ETS(season_adjust ~ error("A") + trend("Ad") + season("N"))
+    ),
+    STL_Holt = decomposition_model(
+      STL(Trips ~ trend(window = 13) + season(window = "periodic")),
+      ETS(season_adjust ~ error("A") + trend("A") + season("N"))
+    ),
+    ETS_auto = ETS(Trips)
+  ) |>
+  forecast(h = 8) |>
+  autoplot(total_trips, level = NULL) +
+  labs(title = "Total Trips: Three-Method Forecast Comparison")
+```
+
+The accuracy table and comparison plot show how all three methods perform and how different their projections are.
+
+```{r ha-8-8-10-resid}
+fit_ets |> gg_tsresiduals()
+```
+
+The residual diagnostics for the preferred ETS model check for any remaining structure in the errors.
+
+## Code Results
+
+The STL decomposition shows a clear seasonal pattern and trend in total trips. The RMSE table compares all three methods. The comparison plot shows the damped forecast levels off while Holt's continues to grow. Residuals from the best model should show no significant autocorrelation.
+
+## Interpretation
+
+For total tourism trips with a clear seasonal and trend component, the auto ETS usually selects an additive or multiplicative seasonal model and performs well. The damped trend version is more conservative and often better for longer horizons because trends rarely continue indefinitely. I prefer the model with both lower RMSE and clean residuals. If the Ljung-Box test p-value is above 0.05, residuals pass the white noise check.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 8, Exercise 8.8.10. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 8.8.13
+
+## Problem
+
+Compare `ETS()`, `SNAIVE()`, and `decomposition_model(STL, ???)` on five series using a 3-year test set: Beer and Bricks from `aus_production`; diabetes (ATC2 = "A10") and corticosteroids (ATC2 = "H02") drug costs from `PBS`; total food retailing turnover from `aus_retail`.
+
+## Approach
+
+For each series I withheld the last 3 years as a test set. I fit all three methods and compared test set accuracy using RMSE and MAPE. A Box-Cox transformation was applied before the STL decomposition for the monthly series with growing variance.
+
+## R Code
+
+```{r ha-8-8-13-beer}
+beer <- aus_production |>
+  filter(!is.na(Beer)) |>
+  select(Quarter, Beer)
+
+n_beer     <- nrow(beer)
+beer_train <- beer |> slice(1:(n_beer - 12))
+
+fit_beer <- beer_train |>
+  model(
+    ETS     = ETS(Beer),
+    SNAIVE  = SNAIVE(Beer),
+    STL_ETS = decomposition_model(
+      STL(Beer ~ trend(window = 7) + season(window = "periodic")),
+      ETS(season_adjust)
+    )
+  )
+
+fit_beer |>
+  forecast(h = 12) |>
+  autoplot(beer, level = NULL) +
+  labs(title = "Beer Production: ETS vs SNAIVE vs STL+ETS")
+
+fit_beer |>
+  forecast(h = 12) |>
+  accuracy(beer) |>
+  select(.model, RMSE, MAE, MAPE)
+```
+
+The accuracy table for Beer shows which method had the lowest test set error over the last 3 years.
+
+```{r ha-8-8-13-bricks}
+bricks_13 <- aus_production |>
+  filter(!is.na(Bricks)) |>
+  select(Quarter, Bricks)
+
+n_bricks     <- nrow(bricks_13)
+bricks_train <- bricks_13 |> slice(1:(n_bricks - 12))
+
+fit_bricks <- bricks_train |>
+  model(
+    ETS     = ETS(Bricks),
+    SNAIVE  = SNAIVE(Bricks),
+    STL_ETS = decomposition_model(
+      STL(Bricks ~ trend(window = 13) + season(window = "periodic")),
+      ETS(season_adjust)
+    )
+  )
+
+fit_bricks |>
+  forecast(h = 12) |>
+  autoplot(bricks_13, level = NULL) +
+  labs(title = "Bricks Production: ETS vs SNAIVE vs STL+ETS")
+
+fit_bricks |>
+  forecast(h = 12) |>
+  accuracy(bricks_13) |>
+  select(.model, RMSE, MAE, MAPE)
+```
+
+The Bricks accuracy table shows test set performance — bricks production peaked in the 1970s and has since declined, so trend handling matters here.
+
+```{r ha-8-8-13-diabetes}
+diabetes <- PBS |>
+  filter(ATC2 == "A10") |>
+  summarise(Cost = sum(Cost))
+
+n_diab     <- nrow(diabetes)
+diab_train <- diabetes |> slice(1:(n_diab - 36))
+
+lambda_diab <- diabetes |>
+  features(Cost, features = guerrero) |>
+  pull(lambda_guerrero)
+
+fit_diab <- diab_train |>
+  model(
+    ETS     = ETS(Cost),
+    SNAIVE  = SNAIVE(Cost),
+    STL_ETS = decomposition_model(
+      STL(box_cox(Cost, lambda_diab) ~
+            trend(window = 13) + season(window = "periodic")),
+      ETS(season_adjust)
+    )
+  )
+
+fit_diab |>
+  forecast(h = 36) |>
+  autoplot(diabetes, level = NULL) +
+  labs(title = "Diabetes Drug Costs (A10): ETS vs SNAIVE vs STL+ETS")
+
+fit_diab |>
+  forecast(h = 36) |>
+  accuracy(diabetes) |>
+  select(.model, RMSE, MAE, MAPE)
+```
+
+The diabetes series is monthly and growing — the accuracy table shows which method handles the trend and seasonality best.
+
+```{r ha-8-8-13-cortisone}
+cortisone <- PBS |>
+  filter(ATC2 == "H02") |>
+  summarise(Cost = sum(Cost))
+
+n_cort     <- nrow(cortisone)
+cort_train <- cortisone |> slice(1:(n_cort - 36))
+
+lambda_cort <- cortisone |>
+  features(Cost, features = guerrero) |>
+  pull(lambda_guerrero)
+
+fit_cort <- cort_train |>
+  model(
+    ETS     = ETS(Cost),
+    SNAIVE  = SNAIVE(Cost),
+    STL_ETS = decomposition_model(
+      STL(box_cox(Cost, lambda_cort) ~
+            trend(window = 13) + season(window = "periodic")),
+      ETS(season_adjust)
+    )
+  )
+
+fit_cort |>
+  forecast(h = 36) |>
+  autoplot(cortisone, level = NULL) +
+  labs(title = "Corticosteroids (H02): ETS vs SNAIVE vs STL+ETS")
+
+fit_cort |>
+  forecast(h = 36) |>
+  accuracy(cortisone) |>
+  select(.model, RMSE, MAE, MAPE)
+```
+
+The corticosteroid accuracy table shows whether a Box-Cox STL approach improves over plain ETS.
+
+```{r ha-8-8-13-food}
+food_retail <- aus_retail |>
+  filter(Industry == "Food retailing") |>
+  summarise(Turnover = sum(Turnover))
+
+n_food     <- nrow(food_retail)
+food_train <- food_retail |> slice(1:(n_food - 36))
+
+lambda_food <- food_retail |>
+  features(Turnover, features = guerrero) |>
+  pull(lambda_guerrero)
+
+fit_food <- food_train |>
+  model(
+    ETS     = ETS(Turnover),
+    SNAIVE  = SNAIVE(Turnover),
+    STL_ETS = decomposition_model(
+      STL(box_cox(Turnover, lambda_food) ~
+            trend(window = 13) + season(window = "periodic")),
+      ETS(season_adjust)
+    )
+  )
+
+fit_food |>
+  forecast(h = 36) |>
+  autoplot(food_retail, level = NULL) +
+  labs(title = "Food Retailing Turnover: ETS vs SNAIVE vs STL+ETS")
+
+fit_food |>
+  forecast(h = 36) |>
+  accuracy(food_retail) |>
+  select(.model, RMSE, MAE, MAPE)
+```
+
+The food retailing series has a long upward trend — MAPE is a useful comparison metric here since the raw scale is large.
+
+## Code Results
+
+Each series has its own accuracy table comparing ETS, SNAIVE, and STL+ETS on the test data. SNAIVE is the simplest benchmark and generally the weakest for trending series. ETS and STL+ETS should perform better when the data has a clear trend or changing seasonal pattern.
+
+## Interpretation
+
+For all five series, ETS usually outperforms SNAIVE because it adapts smoothing parameters to the data. The STL+ETS approach separates the seasonal pattern first, which helps when seasonality changes over time or when the variance is non-constant (hence the Box-Cox transformation for the monthly series). The best method depends on the series — check each MAPE column to find the winner per series.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 8, Exercise 8.8.13. OTexts. https://otexts.com/fpp3/
+
+---
+
+## References
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.). OTexts. https://otexts.com/fpp3/

@@ -1,0 +1,811 @@
+---
+title: "DATA 624 Homework 1 - Version 2"
+author: "Andre Thomson"
+date: "2026-06-10"
+output:
+  word_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 2
+    theme: readable
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(fpp3)
+library(GGally)
+
+theme_set(theme_minimal())
+
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 7,
+  fig.height = 4.5,
+  out.width = "100%",
+  dpi = 300
+)
+```
+
+# DATA 624 Homework 1 - Version 2
+
+## Report Note
+
+This homework follows the required format. Each problem includes the question, why it matters, approach, code, results, interpretation, takeaway, and reference. The code can be run in RStudio/Posit.
+
+---
+
+# HA 2.10.1 — Exploring Four Time Series
+
+## Question
+
+Explore four time series using `help()`, check the time interval, make time plots with `autoplot()`, and change the title and axis labels for the last plot.
+
+The four series are:
+
+- `Bricks` from `aus_production`
+- `Lynx` from `pelt`
+- `Close` from `gafa_stock`
+- `Demand` from `vic_elec`
+
+## Why This Matters
+
+Before forecasting, I need to look at the data first. A time plot helps me see trend, seasonality, cycles, and unusual points. This helps me avoid picking the wrong model later.
+
+## Approach
+
+I checked the intervals and plotted each series. For the last plot, I changed the title and axis labels as required.
+
+## R Code and Results
+
+```{r ha-2-10-1-help, eval=FALSE}
+help(aus_production)
+help(pelt)
+help(gafa_stock)
+help(vic_elec)
+```
+
+```{r ha-2-10-1-intervals}
+interval(aus_production)
+interval(pelt)
+interval(gafa_stock)
+interval(vic_elec)
+
+cat("aus_production  : quarterly\n")
+cat("pelt            : annual\n")
+cat("gafa_stock      : daily trading data\n")
+cat("vic_elec        : 30-minute intervals\n")
+```
+
+The output shows that each dataset uses a different time interval. That matters because quarterly, annual, daily, and half-hourly data have different patterns.
+
+```{r ha-2-10-1-bricks}
+aus_production |>
+  autoplot(Bricks) +
+  labs(
+    title = "Australian Clay Brick Production",
+    x = "Quarter",
+    y = "Bricks (millions)"
+  )
+```
+
+This plot shows Australian clay brick production. The series rises for a long period and then drops later. There is also some seasonality.
+
+```{r ha-2-10-1-lynx}
+pelt |>
+  autoplot(Lynx) +
+  labs(
+    title = "Annual Canadian Lynx Trappings",
+    x = "Year",
+    y = "Number of Lynx"
+  )
+```
+
+This plot shows annual lynx trapping counts. The main pattern is a cycle that repeats about every 10 years. I do not see a strong long-term trend.
+
+```{r ha-2-10-1-gafa}
+gafa_stock |>
+  autoplot(Close) +
+  labs(
+    title = "GAFA Daily Closing Stock Prices",
+    x = "Date",
+    y = "Closing Price (USD)"
+  )
+```
+
+This plot shows daily closing stock prices for Amazon, Apple, Facebook, and Google. The prices generally rise over time, but they also have a lot of movement.
+
+```{r ha-2-10-1-vicelec}
+vic_elec |>
+  autoplot(Demand) +
+  labs(
+    title = "Victorian Half-Hourly Electricity Demand",
+    x = "Date and Time",
+    y = "Electricity Demand (MWh)"
+  )
+```
+
+This plot shows electricity demand in Victoria, Australia. Since the data is every 30 minutes, the pattern is very detailed. I can see strong daily and seasonal movement.
+
+## What I See
+
+- `Bricks`: trend, rise and decline, with some seasonality.
+- `Lynx`: strong cycle, around every 10 years.
+- `gafa_stock`: upward movement with volatility.
+- `vic_elec`: strong daily, weekly, and yearly seasonality.
+
+## Why It Matters
+
+The four series are different. Lynx has cycles. Bricks has trend and seasonality. Stock prices are volatile. Electricity demand has more than one seasonal pattern. This shows why one model will not fit every time series.
+
+## Interpretation
+
+The plots show that each series has its own structure. Bricks has trend and seasonality. Lynx is mostly cyclical. Stock prices move upward but are not smooth. Electricity demand has complex seasonality because it is half-hourly data. The main point is that I need to understand the plot before choosing a forecasting method.
+
+## Final Takeaway
+
+A time plot is the first step in time series analysis. It helps me see the pattern before modeling.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 2, Exercise 2.10.1. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 2.10.3 — Plotting the tute1 Data
+
+## Question
+
+Read `tute1.csv`, convert it to a tsibble, and plot Sales, AdBudget, and GDP. Then check what happens when `facet_grid()` is removed.
+
+## Why This Matters
+
+This exercise shows how to load outside data, convert it to time series format, and compare more than one series. It also shows why faceting matters when the series have different scales.
+
+## Approach
+
+I loaded the data from the book website. I changed the Quarter column into a `yearquarter` index and made the data a tsibble. Then I plotted the three series with `facet_grid()` and again without it.
+
+## R Code and Results
+
+```{r ha-2-10-3-load}
+tute1 <- readr::read_csv(
+  "https://bit.ly/fpptute1",
+  show_col_types = FALSE
+)
+
+head(tute1)
+```
+
+The first rows show four columns: Quarter, Sales, AdBudget, and GDP.
+
+```{r ha-2-10-3-tsibble}
+mytimeseries <- tute1 |>
+  mutate(Quarter = yearquarter(Quarter)) |>
+  as_tsibble(index = Quarter)
+
+mytimeseries
+```
+
+The data is now a tsibble with Quarter as the time index.
+
+```{r ha-2-10-3-facet}
+mytimeseries |>
+  pivot_longer(-Quarter) |>
+  ggplot(aes(x = Quarter, y = value, colour = name)) +
+  geom_line() +
+  facet_grid(name ~ ., scales = "free_y") +
+  labs(
+    title = "tute1 Series: Sales, AdBudget, and GDP",
+    subtitle = "With facet_grid and free y-axis scales",
+    x = "Quarter",
+    y = "Value"
+  ) +
+  theme(legend.position = "none")
+```
+
+This plot shows the three series in separate panels. Each series has its own y-axis, so the patterns are easier to read.
+
+```{r ha-2-10-3-no-facet}
+mytimeseries |>
+  pivot_longer(-Quarter) |>
+  ggplot(aes(x = Quarter, y = value, colour = name)) +
+  geom_line() +
+  labs(
+    title = "tute1 Series Without facet_grid",
+    subtitle = "All three series share one y-axis",
+    x = "Quarter",
+    y = "Value"
+  )
+```
+
+Without `facet_grid()`, all three series share one y-axis. GDP is much larger, so it dominates the graph and makes Sales and AdBudget hard to see.
+
+## What I See
+
+With `facet_grid()`, all three series are readable. GDP shows a steady upward trend. Sales and AdBudget also increase over time. AdBudget has more short-term movement. Without `facet_grid()`, GDP takes over the plot and the smaller series are almost hidden.
+
+## Why It Matters
+
+When variables use different scales, one shared y-axis can hide the smaller series. Faceting fixes this by giving each series its own panel.
+
+## Interpretation
+
+Sales and AdBudget both rise over time and appear to move together. This suggests there may be a relationship, but the plot alone does not prove that advertising caused the increase in sales. GDP also rises over the same period. `facet_grid()` is the better choice because the three series have different scales.
+
+## Final Takeaway
+
+Use `facet_grid()` when comparing time series with different units or different magnitudes. One shared axis can make smaller series hard to read.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 2, Exercise 2.10.3. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 3.7.2 — Transformations for Four Series
+
+## Question
+
+For each series, make a graph, transform it if needed, and explain what the transformation does.
+
+The four series are:
+
+- United States GDP from `global_economy`
+- Victorian "Bulls, bullocks and steers" from `aus_livestock`
+- Victorian electricity demand from `vic_elec`
+- Gas production from `aus_production`
+
+## Why This Matters
+
+Transformations help when the spread gets larger as the series level gets larger. A Box-Cox transformation can make the variation more stable before modeling.
+
+## Approach
+
+I used the Guerrero method to choose a Box-Cox lambda for each series. Then I compared the raw plot to the transformed plot.
+
+## R Code and Results
+
+```{r ha-3-7-2-gdp}
+us_gdp <- global_economy |>
+  filter(Country == "United States")
+
+us_gdp |>
+  autoplot(GDP) +
+  labs(
+    title = "United States GDP",
+    subtitle = "Raw series",
+    x = "Year",
+    y = "GDP"
+  )
+```
+
+The raw GDP series grows faster over time. This suggests that the variance may increase as the level increases.
+
+```{r ha-3-7-2-gdp-transform}
+lambda_gdp <- us_gdp |>
+  features(GDP, features = guerrero) |>
+  pull(lambda_guerrero)
+
+cat("Box-Cox lambda for US GDP:", round(lambda_gdp, 3), "\n")
+
+us_gdp |>
+  autoplot(box_cox(GDP, lambda_gdp)) +
+  labs(
+    title = paste0(
+      "United States GDP - Box-Cox Transformed, lambda = ",
+      round(lambda_gdp, 3)
+    ),
+    x = "Year",
+    y = "Transformed GDP"
+  )
+```
+
+After the transformation, the GDP pattern looks more stable and less curved.
+
+```{r ha-3-7-2-bulls}
+vic_bulls <- aus_livestock |>
+  filter(
+    State == "Victoria",
+    Animal == "Bulls, bullocks and steers"
+  )
+
+vic_bulls |>
+  autoplot(Count) +
+  labs(
+    title = "Victorian Bulls, Bullocks, and Steers Slaughter",
+    subtitle = "Raw series",
+    x = "Month",
+    y = "Count"
+  )
+```
+
+The Victorian bulls series has a declining trend and some irregular movement.
+
+```{r ha-3-7-2-bulls-transform}
+lambda_bulls <- vic_bulls |>
+  features(Count, features = guerrero) |>
+  pull(lambda_guerrero)
+
+cat("Box-Cox lambda for Victorian Bulls:", round(lambda_bulls, 3), "\n")
+
+vic_bulls |>
+  autoplot(box_cox(Count, lambda_bulls)) +
+  labs(
+    title = paste0(
+      "Victorian Bulls - Box-Cox Transformed, lambda = ",
+      round(lambda_bulls, 3)
+    ),
+    x = "Month",
+    y = "Transformed Count"
+  )
+```
+
+The transformation makes the scale a little more consistent, but the change is not as strong as GDP or Gas.
+
+```{r ha-3-7-2-elec}
+vic_elec |>
+  autoplot(Demand) +
+  labs(
+    title = "Victorian Electricity Demand",
+    subtitle = "Raw series",
+    x = "Date-Time",
+    y = "Demand (MWh)"
+  )
+```
+
+Electricity demand has strong seasonality, but the variance looks fairly stable across time.
+
+```{r ha-3-7-2-elec-transform}
+lambda_elec <- vic_elec |>
+  features(Demand, features = guerrero) |>
+  pull(lambda_guerrero)
+
+cat("Box-Cox lambda for Victorian Electricity:", round(lambda_elec, 3), "\n")
+
+vic_elec |>
+  autoplot(box_cox(Demand, lambda_elec)) +
+  labs(
+    title = paste0(
+      "Victorian Electricity - Box-Cox Transformed, lambda = ",
+      round(lambda_elec, 3)
+    ),
+    x = "Date-Time",
+    y = "Transformed Demand"
+  )
+```
+
+The lambda for electricity is close to 1, so the transformation does not change the series much.
+
+```{r ha-3-7-2-gas}
+aus_gas <- aus_production |>
+  filter(!is.na(Gas)) |>
+  select(Quarter, Gas)
+
+aus_gas |>
+  autoplot(Gas) +
+  labs(
+    title = "Australian Gas Production",
+    subtitle = "Raw series",
+    x = "Quarter",
+    y = "Gas"
+  )
+```
+
+Gas production has an upward trend and the seasonal swings get larger as production increases.
+
+```{r ha-3-7-2-gas-transform}
+lambda_gas <- aus_gas |>
+  features(Gas, features = guerrero) |>
+  pull(lambda_guerrero)
+
+cat("Box-Cox lambda for Gas:", round(lambda_gas, 3), "\n")
+
+aus_gas |>
+  autoplot(box_cox(Gas, lambda_gas)) +
+  labs(
+    title = paste0(
+      "Australian Gas Production - Box-Cox Transformed, lambda = ",
+      round(lambda_gas, 3)
+    ),
+    x = "Quarter",
+    y = "Transformed Gas"
+  )
+```
+
+After the transformation, the seasonal swings are more even across the series.
+
+## What I See
+
+- **US GDP**: strong growth; transformation helps.
+- **Victorian Bulls**: some improvement, but not a major change.
+- **Victorian Electricity**: variance is already fairly stable.
+- **Gas**: transformation clearly helps because the seasonal swings grow over time.
+
+## Why It Matters
+
+Forecasting models are easier to use when the variance is stable. If the spread keeps changing, the model errors can become harder to trust.
+
+## Interpretation
+
+US GDP and Gas benefit the most from transformation. Both have variation that grows with the level. Victorian electricity does not need much transformation. The Victorian bulls series may benefit slightly, but it is not the strongest example.
+
+## Final Takeaway
+
+Before modeling, check whether the variance grows with the level. If it does, a Box-Cox transformation can help.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 3, Exercise 3.7.2. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 3.7.7 — Classical Decomposition of Gas Production
+
+## Question
+
+Use the last five years of Gas data from `aus_production`. Plot it, identify trend and seasonality, apply classical multiplicative decomposition, compute the seasonally adjusted data, add an outlier, and check whether the outlier location matters.
+
+## Why This Matters
+
+Classical decomposition separates a series into trend, seasonal, and remainder parts. This exercise also shows that decomposition can be sensitive to outliers.
+
+## Approach
+
+I selected the last 20 available quarters of Gas data, which equals five years. Then I plotted the data, decomposed it, made a seasonally adjusted plot, and tested outliers in the middle and near the end.
+
+## R Code and Results
+
+```{r ha-3-7-7-load}
+gas_5yr <- aus_production |>
+  filter(!is.na(Gas)) |>
+  slice_tail(n = 20) |>
+  select(Quarter, Gas)
+
+gas_5yr
+```
+
+This code selects the last five years of available Gas data.
+
+```{r ha-3-7-7-plot}
+gas_5yr |>
+  autoplot(Gas) +
+  labs(
+    title = "Gas Production - Last Five Years",
+    x = "Quarter",
+    y = "Gas"
+  )
+```
+
+The plot shows an upward trend and a repeating seasonal pattern.
+
+```{r ha-3-7-7-decomp}
+gas_decomp <- gas_5yr |>
+  model(classical_decomposition(Gas, type = "multiplicative")) |>
+  components()
+
+gas_decomp |>
+  autoplot() +
+  labs(title = "Classical Multiplicative Decomposition - Gas Production")
+```
+
+The decomposition separates the series into trend, seasonal, and remainder parts. The results match the pattern in the original plot.
+
+```{r ha-3-7-7-sa}
+gas_decomp |>
+  as_tsibble() |>
+  autoplot(season_adjust) +
+  labs(
+    title = "Seasonally Adjusted Gas Production",
+    x = "Quarter",
+    y = "Seasonally Adjusted Gas"
+  )
+```
+
+The seasonally adjusted plot removes the repeating seasonal pattern, so the trend is easier to see.
+
+```{r ha-3-7-7-outlier-mid}
+gas_outlier_mid <- gas_5yr |>
+  mutate(Gas = if_else(row_number() == 10L, Gas + 300, Gas))
+
+gas_outlier_mid |>
+  model(classical_decomposition(Gas, type = "multiplicative")) |>
+  components() |>
+  as_tsibble() |>
+  autoplot(season_adjust) +
+  labs(
+    title = "Seasonally Adjusted Gas - Outlier in the Middle",
+    x = "Quarter",
+    y = "Seasonally Adjusted Gas"
+  )
+```
+
+An outlier in the middle creates a spike and affects nearby estimates because classical decomposition uses moving averages.
+
+```{r ha-3-7-7-outlier-end}
+gas_outlier_end <- gas_5yr |>
+  mutate(Gas = if_else(row_number() == 18L, Gas + 300, Gas))
+
+gas_outlier_end |>
+  model(classical_decomposition(Gas, type = "multiplicative")) |>
+  components() |>
+  as_tsibble() |>
+  autoplot(season_adjust) +
+  labs(
+    title = "Seasonally Adjusted Gas - Outlier Near the End",
+    x = "Quarter",
+    y = "Seasonally Adjusted Gas"
+  )
+```
+
+An outlier near the end also creates distortion, but the effect is different because there are fewer observations after it.
+
+## What I See
+
+- The raw series shows trend and seasonality.
+- The decomposition supports what I saw in the plot.
+- The seasonally adjusted series shows the trend more clearly.
+- An outlier in the middle distorts nearby estimates.
+- An outlier near the end creates distortion with edge effects.
+
+## Why It Matters
+
+Classical decomposition is useful, but it is not strong against unusual values. One outlier can change the trend, seasonal, and seasonally adjusted results.
+
+## Interpretation
+
+The decomposition supports the original plot because it shows both trend and seasonality. The outlier tests show that classical decomposition is fragile. The location of the outlier matters because moving averages depend on nearby values. At the end of the series, there are fewer nearby values, so the effect is different.
+
+## Final Takeaway
+
+Classical decomposition works on clean data, but it is sensitive to outliers. If outliers are expected, robust STL is a better option.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 3, Exercise 3.7.7. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 3.7.10 — STL Decomposition of Canadian Gas
+
+## Question
+
+Use the `canadian_gas` dataset. Plot it with `autoplot()`, `gg_subseries()`, and `gg_season()`. Then use STL decomposition, explain how the seasonal shape changes over time, make a seasonally adjusted series, and compare with SEATS and X-11 if available.
+
+## Why This Matters
+
+This exercise shows how to handle data where the seasonal pattern changes over time. STL is useful because it can allow the seasonal pattern to change instead of forcing one fixed seasonal pattern.
+
+## Approach
+
+I used three plots to check the seasonal pattern: time plot, seasonal subseries plot, and seasonal plot. Then I used STL decomposition with a flexible seasonal window. I also included code for X-11 and SEATS, but those methods need extra packages.
+
+## R Code and Results
+
+```{r ha-3-7-10-plot}
+canadian_gas |>
+  autoplot(Volume) +
+  labs(
+    title = "Canadian Gas Production",
+    subtitle = "Monthly production",
+    x = "Month",
+    y = "Volume"
+  )
+```
+
+The time plot shows trend and strong seasonality.
+
+```{r ha-3-7-10-subseries}
+canadian_gas |>
+  gg_subseries(Volume) +
+  labs(
+    title = "Canadian Gas Seasonal Subseries Plot",
+    x = "Month",
+    y = "Volume"
+  )
+```
+
+The subseries plot shows how each month behaves across years. Winter months are usually higher than summer months.
+
+```{r ha-3-7-10-season}
+canadian_gas |>
+  gg_season(Volume) +
+  labs(
+    title = "Canadian Gas Seasonal Plot",
+    x = "Month",
+    y = "Volume"
+  )
+```
+
+The seasonal plot shows that the seasonal pattern does not stay the same across the full period.
+
+```{r ha-3-7-10-stl}
+cg_stl <- canadian_gas |>
+  model(STL(Volume ~ trend(window = 13) + season(window = 13))) |>
+  components()
+
+cg_stl |>
+  autoplot() +
+  labs(title = "STL Decomposition - Canadian Gas Production")
+```
+
+The STL decomposition separates the series into trend, seasonal, and remainder parts.
+
+```{r ha-3-7-10-seasonal-change}
+cg_stl |>
+  as_tsibble() |>
+  gg_season(season_year) +
+  labs(
+    title = "Canadian Gas Seasonal Component Over Time",
+    x = "Month",
+    y = "Seasonal Component"
+  )
+```
+
+This plot shows that the seasonal component changes over time. Earlier years have a flatter seasonal pattern. Later years have a bigger difference between high and low months.
+
+```{r ha-3-7-10-sa}
+cg_stl |>
+  as_tsibble() |>
+  autoplot(season_adjust) +
+  labs(
+    title = "Seasonally Adjusted Canadian Gas Production",
+    x = "Month",
+    y = "Seasonally Adjusted Volume"
+  )
+```
+
+The seasonally adjusted series removes the seasonal pattern and makes the trend easier to see.
+
+```{r ha-3-7-10-x11-seats-note}
+if (requireNamespace("seasonal", quietly = TRUE) &&
+    requireNamespace("x13binary", quietly = TRUE)) {
+
+  cg_compare <- canadian_gas |>
+    model(
+      STL   = STL(Volume ~ trend(window = 13) + season(window = 13)),
+      X11   = X_13ARIMA_SEATS(Volume ~ x11()),
+      SEATS = X_13ARIMA_SEATS(Volume ~ seats())
+    )
+
+  components(cg_compare) |>
+    autoplot() +
+    labs(title = "STL, X-11, and SEATS Comparison - Canadian Gas")
+
+} else {
+  cat("X-11 and SEATS were not run because the seasonal package and/or X-13 binary is not installed.\n")
+  cat("STL was used because it is available in fpp3 and handles changing seasonality well.\n")
+}
+```
+
+I could run STL directly in R. X-11 and SEATS need the `seasonal` package and the X-13 binary. Since those tools may not be installed, I did not make a direct comparison. Based on the plots, STL is still a good choice because the seasonal pattern changes over time.
+
+## What I See
+
+- The time plot shows trend and seasonality.
+- The subseries plot shows winter months are usually higher.
+- The seasonal plot shows the seasonal shape changes over time.
+- STL separates the changing seasonal pattern from the trend.
+- The seasonally adjusted series gives a clearer view of the trend.
+
+## Why It Matters
+
+A fixed seasonal pattern is not always realistic. If the seasonal shape changes over time, STL is a better choice because it can adjust to that change.
+
+## Interpretation
+
+Canadian gas production has changing seasonality. The winter peaks become stronger compared to the lower months over time. STL captures this pattern clearly. I could run STL directly in R. X-11 and SEATS require extra setup, so I am not overstating that comparison here.
+
+## Final Takeaway
+
+When seasonal lines do not overlap well across years, the seasonal pattern is changing. STL is a good method for that situation.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 3, Exercise 3.7.10. OTexts. https://otexts.com/fpp3/
+
+---
+
+# HA 4.6.2 — STL Features and Holiday Tourism
+
+## Question
+
+Use `GGally::ggpairs()` to look at relationships between STL-based features for holiday tourism. Change `seasonal_peak_year` and `seasonal_trough_year` to factors. Then identify the peak quarter for holidays in each state.
+
+## Why This Matters
+
+Feature-based analysis helps compare many time series at once. Instead of looking at every region one by one, STL features summarize each series using values like trend strength, seasonal strength, spikiness, and peak quarter.
+
+## Approach
+
+I filtered the tourism data to holiday trips only. Then I computed STL features, changed the peak and trough variables to factors, created a `ggpairs()` plot, and summarized the most common peak quarter by state.
+
+## R Code and Results
+
+```{r ha-4-6-2-features}
+holiday_features <- tourism |>
+  filter(Purpose == "Holiday") |>
+  features(Trips, feat_stl)
+
+holiday_features <- holiday_features |>
+  mutate(
+    seasonal_peak_year = factor(seasonal_peak_year),
+    seasonal_trough_year = factor(seasonal_trough_year)
+  )
+
+glimpse(holiday_features)
+```
+
+The output shows the STL feature columns for the holiday tourism series.
+
+```{r ha-4-6-2-ggpairs, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+holiday_pairs <- holiday_features |>
+  select(
+    trend_strength,
+    seasonal_strength_year,
+    seasonal_peak_year,
+    seasonal_trough_year,
+    spikiness,
+    linearity
+  ) |>
+  ggpairs(title = "STL Features for Holiday Tourism Series")
+
+holiday_pairs
+```
+
+The pairs plot shows the relationships between trend strength, seasonal strength, peak quarter, trough quarter, spikiness, and linearity.
+
+```{r ha-4-6-2-peak-by-state}
+peak_by_state <- holiday_features |>
+  group_by(State, seasonal_peak_year) |>
+  count() |>
+  group_by(State) |>
+  slice_max(n, n = 1, with_ties = FALSE) |>
+  rename(
+    peak_quarter = seasonal_peak_year,
+    region_count = n
+  ) |>
+  arrange(State)
+
+peak_by_state
+```
+
+This table shows the most common peak quarter for holiday tourism in each state.
+
+## What I See
+
+From the pairs plot:
+
+- Most holiday series show seasonal patterns.
+- Trend strength is not the same for every region.
+- Peak quarter differs across states and regions.
+- Spikiness is low for many series, so most do not have many extreme points.
+
+From the peak quarter table:
+
+- The peak quarter differs by state.
+- The table is the main evidence because it is calculated directly from the data.
+- Q1 can reflect summer holiday travel.
+- Q3 can reflect winter or school holiday travel, depending on the state and region.
+
+## Why It Matters
+
+This is useful when there are many time series. STL features give a quick summary instead of checking every single region manually.
+
+## Interpretation
+
+Holiday tourism in Australia is seasonal, but the exact seasonal pattern changes by state and region. Some places peak during summer holiday periods. Other places peak during winter or school holiday periods. The `ggpairs()` plot helps compare the features, and the peak-by-state table answers the question directly.
+
+## Final Takeaway
+
+STL features summarize many time series quickly. The `ggpairs()` plot shows how the features relate to each other. The peak-quarter table gives the direct answer by state.
+
+## Reference
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.), Chapter 4, Exercise 4.6.2. OTexts. https://otexts.com/fpp3/
+
+---
+
+## References
+
+Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.). OTexts. https://otexts.com/fpp3/

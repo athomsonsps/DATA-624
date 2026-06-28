@@ -1,0 +1,21 @@
+# R / RStudio
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# Temporary and intermediate output files
+*_cache/
+*_files/
+*.knit.md
+*.utf8.md
+
+# RStudio temporary files
+.Ruserdata
+
+# knitr cache
+cache/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
